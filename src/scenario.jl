@@ -66,7 +66,7 @@ set_tariff!(sc, b, 1.10; from = "CHN", to = "USA", sector = "C26", mode = :multi
 set_tariff!(sc, b, 1.05; from = ["DEU", "FRA"], to = "GBR")
 ```
 """
-function set_tariff!(sc::Scenario, b::KiteBaseline, value::Real;
+function set_tariff!(sc::Scenario, b, value::Real;
                      from = :all, to = :all, sector = :all, mode::Symbol = :set)
     value > 0 || error("tariff value must be positive; got $value.")
     _apply!(sc.τ′, _countries(b, from), _countries(b, to), _sectors(b, sector),
@@ -87,7 +87,7 @@ set_ntb!(sc, b, 1.5; from = "RUS", to = :all)   # 50% higher trade costs on Russ
 set_ntb!(sc, b, 1e6; from = "RUS", to = "USA")  # prohibitive: an embargo
 ```
 """
-function set_ntb!(sc::Scenario, b::KiteBaseline, value::Real;
+function set_ntb!(sc::Scenario, b, value::Real;
                   from = :all, to = :all, sector = :all, mode::Symbol = :set)
     value > 0 || error("ntb value must be positive; got $value.")
     _apply!(sc.κ̂, _countries(b, from), _countries(b, to), _sectors(b, sector),
@@ -101,7 +101,7 @@ end
 Set the counterfactual export tax (`> 1`) or subsidy (`< 1`) multiplier `ζ′` on the selected
 flows, where the origin `from` is the country levying or paying it.
 """
-function set_export_subsidy!(sc::Scenario, b::KiteBaseline, value::Real;
+function set_export_subsidy!(sc::Scenario, b, value::Real;
                              from = :all, to = :all, sector = :all, mode::Symbol = :set)
     value > 0 || error("export subsidy value must be positive; got $value.")
     _apply!(sc.ζ′, _countries(b, from), _countries(b, to), _sectors(b, sector),
@@ -114,7 +114,7 @@ end
 
 Set the exogenous productivity change `ẑ`. Values above one lower input costs.
 """
-function set_productivity!(sc::Scenario, b::KiteBaseline, value::Real;
+function set_productivity!(sc::Scenario, b, value::Real;
                            country = :all, sector = :all, mode::Symbol = :set)
     value > 0 || error("productivity value must be positive; got $value.")
     mode in (:set, :multiply, :add) ||
@@ -136,7 +136,7 @@ end
 
 Set the exogenous labour-supply change `L̂`.
 """
-function set_population!(sc::Scenario, b::KiteBaseline, value::Real;
+function set_population!(sc::Scenario, b, value::Real;
                          country = :all, mode::Symbol = :set)
     value > 0 || error("population value must be positive; got $value.")
     mode in (:set, :multiply, :add) ||
@@ -165,7 +165,7 @@ previous membership.
 set_coalition!(sc, b, ["USA", "DEU", "FRA", "GBR"])
 ```
 """
-function set_coalition!(sc::Scenario, b::KiteBaseline, countries)
+function set_coalition!(sc::Scenario, b, countries)
     fill!(sc.coalition, false)
     for d in _countries(b, countries isa AbstractString ? [countries] : countries)
         sc.coalition[d] = true

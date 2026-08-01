@@ -19,8 +19,10 @@ Four models:
 | `ChowdhryHinzKaminWanner2022` | sanction-coalition transfers that equalise the welfare cost |
 | `MahlkowWanner2023` | natural-resource rents and a Leontief fossil-fuel nest, for carbon |
 | `AntrasChor2018` | use-specific sourcing — global value chains |
+| `FelbermayrEtAl2025` | regions, two factors, nested CES, labour mobility, tariff pooling |
 
-The last two were documented in the KITE whitepaper but never implemented in R.
+The middle two were documented in the KITE whitepaper but never implemented in R; the last
+implements a working paper on the regional incidence of global shocks.
 
 ## Installation
 

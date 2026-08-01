@@ -86,6 +86,20 @@ applies. Be aware of the memory: `π[o,d,j,k]` is 125 MB at 81 countries and 50 
 Both reduce *exactly* to [`CaliendoParro2015`](@ref) in their degenerate case — no fossil sectors
 designated, or use-independent sourcing — which is how they are tested.
 
+[`FelbermayrEtAl2025`](@ref) moves from countries to regions and adds labour mobility, following
+the regional model of Felbermayr, Hinz, Krantz, Mahlkow & Wanner (2025) after Baqaee & Farhi
+(2024) and Caliendo, Dvorkin & Parro (2019). Production and consumption are nested CES rather
+than Cobb-Douglas (`σ`, `ρ`, `κ`, `η`), so every cost and expenditure share is endogenous; there
+are two factors, with labour mobile inside a group of regions and local structures fixed and
+earning a rent that is paid into a global portfolio; and customs unions pool their tariff
+revenue. It takes a [`RegionalBaseline`](@ref) built by [`calibrate_regional`](@ref) and returns
+a [`RegionalResult`](@ref); see [`labour_reallocation`](@ref) for where workers move.
+
+Unlike the other two this one does *not* reduce to [`CaliendoParro2015`](@ref) at unit
+elasticities: the global rental portfolio pays each region a share of world capital income
+rather than the return on the capital sited in it, which is a substantive difference rather than
+a normalisation.
+
 !!! note "Trade elasticity convention"
     `θ` is the standard Fréchet shape parameter: **larger `θ` means more responsive trade**. The
     R implementation inverts the exponents, so its `trade_elasticity` argument behaves as `1/θ`.

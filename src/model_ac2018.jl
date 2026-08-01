@@ -99,14 +99,14 @@ function GVCBaseline(b::KiteBaseline; π_use = nothing, π_fin = nothing,
     passes = 0
     for it in 1:max_iterations
         passes = it
-        _gvc_intermediate_demand!(M, b.input_share, Y)
-        _gvc_output!(Ynew, pu, pf, M, F, b.τ, b.ζ)
+        _use_intermediate_demand!(M, b.input_share, Y)
+        _use_output!(Ynew, pu, pf, M, F, b.τ, b.ζ)
         dev = _max_rel_dev(Ynew, Y)
         copyto!(Y, Ynew)
         dev < tolerance && break
     end
 
-    _gvc_intermediate_demand!(M, b.input_share, Y)
+    _use_intermediate_demand!(M, b.input_share, Y)
     X = similar(b.X)
     @inbounds for j in 1:J
         @views @. X[:, j] = F[:, j]
@@ -114,7 +114,7 @@ function GVCBaseline(b::KiteBaseline; π_use = nothing, π_fin = nothing,
             @views @. X[:, j] += M[:, j, k]
         end
     end
-    π̄ = _gvc_aggregate_shares(pu, pf, M, F, X)
+    π̄ = _use_aggregate_shares(pu, pf, M, F, X)
     VA = vec(sum(b.β .* Y, dims = 2))
     R = _revenue(π̄, X, b.τ, b.ζ)
     D = VA .+ R .- b.I
@@ -134,94 +134,6 @@ end
 Base.show(io::IO, g::GVCBaseline) =
     print(io, "GVCBaseline(", g.base.N, " countries × ", g.base.J,
           " sectors, use-specific sourcing)")
-
-function _normalise_use_shares!(pu, π_fallback)
-    N, _, J, _ = size(pu)
-    @inbounds for k in 1:J, j in 1:J, d in 1:N
-        s = 0.0
-        @simd for o in 1:N
-            s += pu[o, d, j, k]
-        end
-        if s > 0
-            @simd for o in 1:N
-                pu[o, d, j, k] /= s
-            end
-        else
-            @simd for o in 1:N
-                pu[o, d, j, k] = π_fallback[o, d, j]
-            end
-        end
-    end
-    return pu
-end
-
-"""
-    _gvc_intermediate_demand!(M, input_share, Y)
-
-`M[d,j,k] = input_share[d,j,k]·Y[d,k]` — country `d`'s demand for sector-`j` goods as an input
-to its sector `k`.
-"""
-function _gvc_intermediate_demand!(M, input_share, Y)
-    N, J = size(Y)
-    @inbounds for k in 1:J, j in 1:J
-        @views @. M[:, j, k] = input_share[:, j, k] * Y[:, k]
-    end
-    return M
-end
-
-"""
-    _gvc_output!(Y, π_use, π_fin, M, F, τ, ζ)
-
-Whitepaper equation (39) in levels:
-`Y[o,j] = Σ_d ( π_fin[o,d,j]·F[d,j] + Σ_k π_use[o,d,j,k]·M[d,j,k] ) / (τ[o,d,j]·ζ[o,d,j])`.
-"""
-function _gvc_output!(Y, π_use, π_fin, M, F, τ, ζ)
-    N, J = size(F)
-    fill!(Y, 0.0)
-    @inbounds for j in 1:J, d in 1:N
-        f = F[d, j]
-        if f != 0
-            @views @. Y[:, j] += π_fin[:, d, j] * f / (τ[:, d, j] * ζ[:, d, j])
-        end
-        for k in 1:J
-            mv = M[d, j, k]
-            mv == 0 && continue
-            @views @. Y[:, j] += π_use[:, d, j, k] * mv / (τ[:, d, j] * ζ[:, d, j])
-        end
-    end
-    return Y
-end
-
-"""
-    _gvc_aggregate_shares(π_use, π_fin, M, F, X) -> Array{Float64,3}
-
-Expenditure-weighted average sourcing share,
-`π̄[o,d,j] = (π_fin[o,d,j]·F[d,j] + Σ_k π_use[o,d,j,k]·M[d,j,k]) / X[d,j]`.
-
-Because tariffs are product- rather than use-specific, this aggregate reproduces the same
-bilateral flows and the same goods-market identity as the disaggregated shares, which is what
-lets the ordinary [`KiteBaseline`](@ref) machinery apply unchanged.
-"""
-function _gvc_aggregate_shares(π_use, π_fin, M, F, X)
-    N, _, J, _ = size(π_use)
-    π̄ = zeros(N, N, J)
-    @inbounds for j in 1:J, d in 1:N
-        x = X[d, j]
-        if x <= 0
-            @views π̄[:, d, j] .= π_fin[:, d, j]
-            continue
-        end
-        f = F[d, j]
-        @views @. π̄[:, d, j] = π_fin[:, d, j] * f
-        for k in 1:J
-            mv = M[d, j, k]
-            mv == 0 && continue
-            @views @. π̄[:, d, j] += π_use[:, d, j, k] * mv
-        end
-        @views π̄[:, d, j] ./= x
-    end
-    return π̄
-end
 
 # ── workspace ─────────────────────────────────────────────────────────────────────────────
 
@@ -389,7 +301,7 @@ function update_equilibrium(model::AntrasChor2018, g::GVCBaseline, sc::Scenario,
     end
 
     π_use′, π_fin′ = _ac_recover_shares(ws, sc)
-    π̄ = _gvc_aggregate_shares(π_use′, π_fin′, ws.M, ws.F, ws.X′)
+    π̄ = _use_aggregate_shares(π_use′, π_fin′, ws.M, ws.F, ws.X′)
 
     return KiteResult(model, b, sc, settings,
                       copy(ws.ŵ), copy(ws.ĉ), copy(ws.P̂_fin), π̄,
@@ -519,7 +431,7 @@ function _ac_inner!(ws::_ACWorkspace, b::KiteBaseline, settings::SolverSettings)
         @inbounds for j in 1:J
             @views @. ws.F[:, j] = b.α[:, j] * ws.I′
         end
-        _gvc_intermediate_demand!(ws.M, b.input_share, ws.Y′)
+        _use_intermediate_demand!(ws.M, b.input_share, ws.Y′)
 
         # gross output
         fill!(ws.Y′, 0.0)
