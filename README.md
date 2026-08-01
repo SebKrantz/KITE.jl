@@ -7,10 +7,20 @@
 **Quantitative multi-sector Ricardian trade models, solved in changes.**
 
 KITE.jl evaluates counterfactual trade policy — tariffs, non-tariff barriers, sanctions, export
-subsidies — in the general-equilibrium framework of Caliendo & Parro (2015) and the
-sanctions-coalition extension of Chowdhry, Hinz, Kamin & Wanner (2022). It is a Julia
+subsidies — in the general-equilibrium framework of Caliendo & Parro (2015). It is a Julia
 translation of the R package [KITE](https://github.com/julianhinz/KITE) (Kiel Institute Trade
 Policy Evaluation), rewritten around a model-consistent baseline and dense arrays.
+
+Four models:
+
+| model | adds |
+|---|---|
+| `CaliendoParro2015` | multi-sector Ricardian core with input-output linkages |
+| `ChowdhryHinzKaminWanner2022` | sanction-coalition transfers that equalise the welfare cost |
+| `MahlkowWanner2023` | natural-resource rents and a Leontief fossil-fuel nest, for carbon |
+| `AntrasChor2018` | use-specific sourcing — global value chains |
+
+The last two were documented in the KITE whitepaper but never implemented in R.
 
 ## Installation
 
@@ -42,6 +52,28 @@ set_ntb!(sc, b, 1.5; from = :all, to = "RUS")
 set_coalition!(sc, b, ["USA", "DEU", "FRA", "GBR"])  # equalises the welfare cost
 
 r = update_equilibrium(ChowdhryHinzKaminWanner2022(), b, sc)
+```
+
+Carbon and energy, with fossil-fuel sectors that own a resource and burn fuel in fixed
+proportions:
+
+```julia
+m = MahlkowWanner2023(b;
+        primary = ["B05", "B06"],           # coal, crude oil and gas extraction
+        secondary = ["C19" => "B06"],       # refined petroleum ← crude oil
+        resource_share = 0.6)               # share of primary value added that is resource rent
+
+r = update_equilibrium(m, b, sc)
+fossil_use(r)                                # real fuel use — the emissions driver
+resource_price_change(r)
+```
+
+Global value chains, where sourcing differs by using sector:
+
+```julia
+g = GVCBaseline(b; π_use = π_use, π_fin = π_fin)   # (N,N,J,J) and (N,N,J)
+r = update_equilibrium(AntrasChor2018(), g, sc)
+r.ext.P̂_use                                  # price of sector-j goods bought by sector k
 ```
 
 Bring your own data — the long CSV format matches the R package's initial conditions:

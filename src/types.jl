@@ -270,10 +270,12 @@ hat, counterfactual levels a prime.
   (`T′` is all zeros for [`CaliendoParro2015`](@ref)).
 - `converged::Bool`, `criterion::Float64`, `iterations::Int`, `inner_iterations::Int`,
   `elapsed::Float64`
+- `ext`: model-specific extras, `nothing` for models that produce none. Mahlkow & Wanner puts
+  the natural-resource rental prices here; read them with [`resource_price_change`](@ref).
 
 Use [`results`](@ref) to turn this into tidy `DataFrame`s.
 """
-struct KiteResult{M<:KiteModel}
+struct KiteResult{M<:KiteModel,E}
     model::M
     baseline::KiteBaseline
     scenario::Scenario
@@ -293,6 +295,7 @@ struct KiteResult{M<:KiteModel}
     iterations::Int
     inner_iterations::Int
     elapsed::Float64
+    ext::E
 end
 
 function Base.show(io::IO, r::KiteResult{M}) where {M}

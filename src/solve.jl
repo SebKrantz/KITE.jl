@@ -33,7 +33,7 @@ function update_equilibrium(model::KiteModel, b::KiteBaseline, sc::Scenario,
     _check_scenario(model, b, sc)
     _check_conformable(b, sc)
 
-    ws = _Workspace(b, sc)
+    ws = _Workspace(b, sc, _model_state(model, b, sc))
     num_index = _numeraire_index(b, settings.numeraire)
 
     criterion = Inf
@@ -44,22 +44,30 @@ function update_equilibrium(model::KiteModel, b::KiteBaseline, sc::Scenario,
     while iter < settings.max_iterations
         iter += 1
         copyto!(ws.ŵ_prev, ws.ŵ)
+        copyto!(ws.P̂_prev, ws.P̂)
 
-        _input_cost!(ws, b, sc)
+        _input_cost!(model, ws, b, sc)
         _price_index!(ws, b)
         _trade_shares!(ws, b)
         _policy_weights!(ws, b, sc)
+        _factor_income!(model, ws, b, sc)
 
-        n_inner, inner_ok = _expenditure_block!(ws, b, sc, settings)
+        n_inner, inner_ok = _expenditure_block!(model, ws, b, sc, settings)
         inner_total += n_inner
 
-        _value_added!(ws, b)
+        _value_added!(model, ws, b)
         _update_trade_balance!(ws, b, settings.trade_balance_rule)
         _transfers!(model, ws, b, sc)
         _wage_update!(model, ws, b, sc, settings)
-        _normalise_wage!(ws, b, num_index)
+        _normalise_wage!(model, ws, b, num_index)
 
-        criterion = _criterion(ws.ŵ, ws.ŵ_prev, settings.convergence)
+        # Convergence is measured on the wage *and* the price block. Wages alone are not
+        # enough: a shock that is symmetric across countries leaves ŵ at its fixed point from
+        # the very first iteration while prices are still propagating through the input-output
+        # linkages, and a wage-only criterion would stop there with the wrong price vector.
+        # (The R implementation measures only ŵ and has this failure mode.)
+        criterion = max(_criterion(ws.ŵ, ws.ŵ_prev, settings.convergence),
+                        _criterion(ws.P̂, ws.P̂_prev, settings.convergence))
 
         if settings.verbose ≥ 2
             @printf("  iteration %4d   criterion %.3e   inner %d\n", iter, criterion, n_inner)
@@ -89,8 +97,17 @@ function update_equilibrium(model::KiteModel, b::KiteBaseline, sc::Scenario,
                       copy(ws.ŵ), copy(ws.ĉ), copy(ws.P̂), copy(ws.π′),
                       copy(ws.X′), copy(ws.Y′), copy(ws.I′), copy(ws.VA′),
                       copy(ws.D′), copy(ws.T′),
-                      converged, criterion, iter, inner_total, elapsed)
+                      converged, criterion, iter, inner_total, elapsed,
+                      _result_extras(model, ws))
 end
+
+"""
+    _result_extras(model, ws)
+
+Model-specific quantities to carry into the [`KiteResult`](@ref). `nothing` for models whose
+output is fully described by the shared fields.
+"""
+_result_extras(::KiteModel, ws::_Workspace) = nothing
 
 """
     caliendo_parro_2015(baseline, scenario = Scenario(baseline); kwargs...) -> KiteResult
@@ -136,11 +153,33 @@ end
 # ── the equilibrium blocks ────────────────────────────────────────────────────────────────
 
 """
-    _input_cost!(ws, b, sc)
+    _model_state(model, b, sc)
+
+Model-specific scratch stored in the workspace's `ext` field. Models that need none — the
+Caliendo–Parro and Chowdhry–Hinz–Kamin–Wanner solvers — return `nothing`.
+"""
+_model_state(::KiteModel, b::KiteBaseline, sc::Scenario) = nothing
+
+"""
+    _factor_income!(model, ws, b, sc)
+
+Payments to primary factors, held fixed during the inner loop. For the baseline models this is
+just `L̂[d]·ŵ[d]·VA[d]`; models with additional factors (a natural resource, say) override it.
+"""
+function _factor_income!(::KiteModel, ws::_Workspace, b::KiteBaseline, sc::Scenario)
+    @inbounds for d in 1:ws.N
+        lw = ws.has_population ? sc.L̂[d] * ws.ŵ[d] : ws.ŵ[d]
+        ws.factor_income[d] = lw * b.VA[d]
+    end
+    return ws
+end
+
+"""
+    _input_cost!(model, ws, b, sc)
 
 `ĉ[d,j] = (1/ẑ[d,j]) · exp( β[d,j]·log ŵ[d] + (1 − β[d,j])·Σ_k γ[d,k,j]·log P̂[d,k] )`
 """
-function _input_cost!(ws::_Workspace, b::KiteBaseline, sc::Scenario)
+function _input_cost!(::KiteModel, ws::_Workspace, b::KiteBaseline, sc::Scenario)
     N, J = ws.N, ws.J
     @inbounds @. ws.logP̂ = log(ws.P̂)
     @inbounds for j in 1:J
@@ -221,17 +260,36 @@ function _policy_weights!(ws::_Workspace, b::KiteBaseline, sc::Scenario)
 end
 
 """
-    _value_added!(ws, b)
+    _value_added!(model, ws, b)
 
 `VA′[o] = Σ_j β[o,j]·Y′[o,j]`
 """
-function _value_added!(ws::_Workspace, b::KiteBaseline)
+function _value_added!(::KiteModel, ws::_Workspace, b::KiteBaseline)
     fill!(ws.VA′, 0.0)
     @inbounds for j in 1:ws.J
         @views @. ws.VA′ += b.β[:, j] * ws.Y′[:, j]
     end
     return ws
 end
+
+"""
+    _intermediate_demand_model!(model, ws, b)
+
+Demand for each sector's goods as intermediates, `ID[d,k] = Σ_j input_share[d,k,j]·Y′[d,j]`.
+Models whose input cost shares move with relative prices — the Leontief fuel nest of Mahlkow &
+Wanner — override this to rescale the affected columns.
+"""
+_intermediate_demand_model!(::KiteModel, ws::_Workspace, b::KiteBaseline) =
+    _intermediate_demand!(ws.ID, b.input_share, ws.Y′)
+
+"""
+    _linear_expenditure(model, ws) -> Bool
+
+Whether the expenditure block is linear in `X′` given the current outer iterate, and so can be
+solved by `inner_solver = :direct`. False only when a model rescales the intermediate input
+coefficients by cost shares that move with prices.
+"""
+_linear_expenditure(::KiteModel, ws::_Workspace) = true
 
 """
     _update_trade_balance!(ws, b, rule::Symbol)
@@ -258,12 +316,13 @@ function _update_trade_balance!(ws::_Workspace, b::KiteBaseline, rule::Symbol)
 end
 
 """
-    _normalise_wage!(ws, b, num_index)
+    _normalise_wage!(model, ws, b, num_index)
 
 Impose the numéraire: `num_index == 0` scales `ŵ` so world value added is unchanged, otherwise
-it fixes the wage of country `num_index`. Real quantities are invariant to the choice.
+it fixes the wage of country `num_index`. Models with additional factor prices override this to
+scale every nominal price by the same factor.
 """
-function _normalise_wage!(ws::_Workspace, b::KiteBaseline, num_index::Int)
+function _normalise_wage!(::KiteModel, ws::_Workspace, b::KiteBaseline, num_index::Int)
     if num_index == 0
         s_new = sum(ws.VA′)
         s_new > 0 || return ws
@@ -280,13 +339,18 @@ end
 
 # ── expenditure / output block ────────────────────────────────────────────────────────────
 
-function _expenditure_block!(ws::_Workspace, b::KiteBaseline, sc::Scenario,
+function _expenditure_block!(model::KiteModel, ws::_Workspace, b::KiteBaseline, sc::Scenario,
                              settings::SolverSettings)
     if settings.inner_solver === :direct
+        _linear_expenditure(model, ws) || error(
+            "inner_solver = :direct is not available for $(_model_name(model)) with the " *
+            "current configuration: its intermediate input coefficients are rescaled by " *
+            "price-dependent cost shares, so the dense system would not represent the " *
+            "expenditure block. Use inner_solver = :iterative.")
         _direct_expenditure!(ws, b, sc)
         return 1, true
     end
-    return _inner_expenditure!(ws, b, sc, settings)
+    return _inner_expenditure!(model, ws, b, sc, settings)
 end
 
 """
@@ -301,7 +365,7 @@ Warm-started fixed point in `(X′, I′, Y′)`:
 Convergence is measured on `Y′`. Because the workspace carries the previous outer iteration's
 iterate, this typically needs a handful of passes — and exactly one when nothing has changed.
 """
-function _inner_expenditure!(ws::_Workspace, b::KiteBaseline, sc::Scenario,
+function _inner_expenditure!(model::KiteModel, ws::_Workspace, b::KiteBaseline, sc::Scenario,
                              settings::SolverSettings)
     N, J = ws.N, ws.J
     converged = false
@@ -312,7 +376,7 @@ function _inner_expenditure!(ws::_Workspace, b::KiteBaseline, sc::Scenario,
         copyto!(ws.Y_prev, ws.Y′)
 
         # expenditure from the previous income and output iterates
-        _intermediate_demand!(ws.ID, b.input_share, ws.Y′)
+        _intermediate_demand_model!(model, ws, b)
         @inbounds for j in 1:J
             @views @. ws.X′[:, j] = b.α[:, j] * ws.I′ + ws.ID[:, j]
         end
@@ -332,9 +396,8 @@ function _inner_expenditure!(ws::_Workspace, b::KiteBaseline, sc::Scenario,
             @simd for j in 1:J
                 acc += ws.tr_share[d, j] * ws.X′[d, j]
             end
-            lw = ws.has_population ? sc.L̂[d] * ws.ŵ[d] : ws.ŵ[d]
             ws.I′[d] = acc + (ws.has_export_subsidy ? ws.ES′[d] : 0.0) +
-                       lw * b.VA[d] - ws.D′[d] + ws.T′[d]
+                       ws.factor_income[d] - ws.D′[d] + ws.T′[d]
         end
 
         # gross output
@@ -386,8 +449,7 @@ function _direct_expenditure!(ws::_Workspace, b::KiteBaseline, sc::Scenario)
 
     rhs = Vector{Float64}(undef, n)
     @inbounds for k in 1:J, d in 1:N
-        lw = ws.has_population ? sc.L̂[d] * ws.ŵ[d] : ws.ŵ[d]
-        rhs[idx(d, k)] = -b.α[d, k] * (lw * b.VA[d] - ws.D′[d] + ws.T′[d])
+        rhs[idx(d, k)] = -b.α[d, k] * (ws.factor_income[d] - ws.D′[d] + ws.T′[d])
     end
 
     x = M \ rhs
@@ -405,9 +467,8 @@ function _direct_expenditure!(ws::_Workspace, b::KiteBaseline, sc::Scenario)
         @simd for j in 1:J
             acc += ws.tr_share[d, j] * ws.X′[d, j]
         end
-        lw = ws.has_population ? sc.L̂[d] * ws.ŵ[d] : ws.ŵ[d]
         ws.I′[d] = acc + (ws.has_export_subsidy ? ws.ES′[d] : 0.0) +
-                   lw * b.VA[d] - ws.D′[d] + ws.T′[d]
+                   ws.factor_income[d] - ws.D′[d] + ws.T′[d]
     end
     @inbounds for j in 1:J
         @views mul!(ws.Y′[:, j], view(ws.A, :, :, j), ws.X′[:, j])

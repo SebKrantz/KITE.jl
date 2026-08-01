@@ -1,3 +1,41 @@
+# 0.2.0 (unreleased)
+
+## New models
+
+Both were documented in the KITE whitepaper but never implemented in the R package.
+
+* **`MahlkowWanner2023`** — carbon/energy extension (whitepaper §2.4, eqs. 23–29). Primary
+  fossil-fuel sectors extract a natural resource in fixed supply, so their rental price is
+  solved for alongside wages and rents enter income. Secondary fossil fuels combine their
+  complementary primary fuel with the rest of their input bundle in **Leontief** rather than
+  Cobb-Douglas fashion, so fuel cost shares move with relative prices instead of being pinned by
+  a fixed exponent — which is what lets fuel use, and hence emissions, respond to trade shocks.
+  `fossil_use` reports real secondary-fuel use; `resource_price_change` the rental prices.
+  Unlike the whitepaper, tariffs and export subsidies are supported, so the model reduces
+  exactly to `CaliendoParro2015` when no fossil sectors are designated.
+
+* **`AntrasChor2018`** — global value chains (whitepaper §4.1, eqs. 34–42). Sourcing becomes
+  use-specific: `π[o,d,j,k]` for sector-`j` goods bought by sector `k`, plus `π[o,d,j,C]` for
+  final consumption, each with its own price index. Takes a `GVCBaseline`, which re-solves gross
+  output against the use-specific goods-market condition and exposes an aggregate-equivalent
+  `KiteBaseline` so every results helper keeps working. Tariffs stay product-specific, matching
+  how trade policy actually applies. Reduces exactly to `CaliendoParro2015` under
+  use-independent sourcing. Note the memory: `π[o,d,j,k]` is 125 MB at 81 countries × 50
+  sectors, and the solver holds two such arrays.
+
+## Fixed
+
+* **The convergence criterion missed shocks that move prices but not wages.** The outer loop
+  measured only the wage change `ŵ`, following the R implementation. A shock that is symmetric
+  across countries leaves `ŵ` at its fixed point from the very first iteration while prices are
+  still propagating through the input-output linkages, so the solver stopped immediately and
+  reported a price vector that did not satisfy its own input-cost equation. On a four-country
+  test a uniform doubling of one sector's trade costs converged in 1 iteration with a **23%**
+  violation of the input-cost equation, leaving every other sector's price index at 1. The
+  criterion now covers the price block as well; the same case takes 53 iterations and the
+  violation falls to 5e-13. This affected `CaliendoParro2015` and `ChowdhryHinzKaminWanner2022`
+  as well as the new models, and it affects the R implementation.
+
 # 0.1.0
 
 First release: a Julia translation of the R package
