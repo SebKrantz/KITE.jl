@@ -14,12 +14,15 @@ KITE
 KiteModel
 CaliendoParro2015
 ChowdhryHinzKaminWanner2022
+MahlkowWanner2023
+AntrasChor2018
 ```
 
 ## Baselines
 
 ```@docs
 KiteBaseline
+GVCBaseline
 calibrate
 residuals
 load_baseline
@@ -67,6 +70,8 @@ tariff_revenue
 export_subsidy_costs
 trade_flows
 trade_aggregates
+fossil_use
+resource_price_change
 ```
 
 ## Index

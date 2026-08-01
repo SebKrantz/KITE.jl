@@ -13,7 +13,7 @@
 # it to an N×J matrix turns the inner loop's income step from O(N²J) into O(NJ). The R code
 # builds three full (N,N,J) temporaries there on every inner iteration.
 
-struct _Workspace
+struct _Workspace{E}
     N::Int
     J::Int
     # country vectors
@@ -30,8 +30,12 @@ struct _Workspace
     imports::Vector{Float64}
     u::Vector{Float64}
     t::Vector{Float64}
+    # payments to primary factors, ŵ·VA in the baseline models and ŵ·L + Σ_p p̂·R under
+    # Mahlkow & Wanner. Fixed during the inner loop, so it is computed once per outer pass.
+    factor_income::Vector{Float64}
     # country × sector matrices
     ĉ::Matrix{Float64}
+    P̂_prev::Matrix{Float64}
     P̂::Matrix{Float64}
     logP̂::Matrix{Float64}
     X′::Matrix{Float64}
@@ -50,9 +54,11 @@ struct _Workspace
     has_tariff::Bool
     has_productivity::Bool
     has_population::Bool
+    # model-specific scratch; `nothing` for models that need none
+    ext::E
 end
 
-function _Workspace(b::KiteBaseline, sc::Scenario)
+function _Workspace(b::KiteBaseline, sc::Scenario, ext = nothing)
     N, J = b.N, b.J
 
     φ̂ = similar(b.π)
@@ -72,12 +78,13 @@ function _Workspace(b::KiteBaseline, sc::Scenario)
     # leave the no-change scenario short of machine precision.
     return _Workspace(N, J,
         ones(N), ones(N), copy(b.I), copy(b.VA), copy(b.D), zeros(N), zeros(N), zeros(N),
-        ones(N), zeros(N), zeros(N), zeros(N), zeros(N),
-        ones(N, J), ones(N, J), zeros(N, J),
+        ones(N), zeros(N), zeros(N), zeros(N), zeros(N), copy(b.VA),
+        ones(N, J), ones(N, J), ones(N, J), zeros(N, J),
         copy(b.X), copy(b.Y), similar(b.Y), zeros(N, J), zeros(N, J),
         φ̂, W, copy(b.π), similar(b.π), Aζ,
         has_export_subsidy,
         any(!=(1.0), sc.τ′),
         any(!=(1.0), sc.ẑ),
-        any(!=(1.0), sc.L̂))
+        any(!=(1.0), sc.L̂),
+        ext)
 end

@@ -67,6 +67,25 @@ labour-market clearing; [`ChowdhryHinzKaminWanner2022`](@ref) from the trade-bal
 excess-demand function, and additionally computes transfers that equalise the welfare cost
 across a sanctioning coalition.
 
+## Extensions
+
+Two further models from the KITE whitepaper, neither implemented in the R package:
+
+[`MahlkowWanner2023`](@ref) adds energy. Primary fossil-fuel sectors extract a natural resource
+in fixed supply, so its rental price is solved for alongside wages and rents are part of income.
+Secondary fuels combine their complementary primary fuel with the rest of their inputs in
+Leontief rather than Cobb-Douglas fashion — fuel cost shares then move with relative prices
+instead of being pinned by a fixed exponent, which is what lets fuel use, and so emissions,
+respond to a trade shock. Use [`fossil_use`](@ref) and [`resource_price_change`](@ref).
+
+[`AntrasChor2018`](@ref) makes sourcing use-specific: `π[o,d,j,k]` for sector-`j` goods bought by
+sector `k`, plus `π[o,d,j,C]` for final consumption, each with its own price index. It takes a
+[`GVCBaseline`](@ref). Tariffs stay product-specific, matching how trade policy actually
+applies. Be aware of the memory: `π[o,d,j,k]` is 125 MB at 81 countries and 50 sectors.
+
+Both reduce *exactly* to [`CaliendoParro2015`](@ref) in their degenerate case — no fossil sectors
+designated, or use-independent sourcing — which is how they are tested.
+
 !!! note "Trade elasticity convention"
     `θ` is the standard Fréchet shape parameter: **larger `θ` means more responsive trade**. The
     R implementation inverts the exponents, so its `trade_elasticity` argument behaves as `1/θ`.

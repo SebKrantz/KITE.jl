@@ -431,18 +431,198 @@ const FIXTURE = joinpath(@__DIR__, "fixtures", "toy_3x2")
         # a steady-state outer iteration must not allocate
         ws = KITE._Workspace(b, sc)
         settings = SolverSettings(verbose = 0)
-        KITE._input_cost!(ws, b, sc); KITE._price_index!(ws, b)
+        KITE._input_cost!(CaliendoParro2015(), ws, b, sc); KITE._price_index!(ws, b)
         KITE._trade_shares!(ws, b);   KITE._policy_weights!(ws, b, sc)
         allocated = @allocated begin
-            KITE._input_cost!(ws, b, sc)
+            KITE._input_cost!(CaliendoParro2015(), ws, b, sc)
             KITE._price_index!(ws, b)
             KITE._trade_shares!(ws, b)
             KITE._policy_weights!(ws, b, sc)
-            KITE._value_added!(ws, b)
+            KITE._value_added!(CaliendoParro2015(), ws, b)
             KITE._update_trade_balance!(ws, b, :fixed)
             KITE._wage_update!(CaliendoParro2015(), ws, b, sc, settings)
         end
         @test allocated == 0
+    end
+
+    # -----------------------------------------------------------------------
+    # Mahlkow & Wanner (2023): natural-resource rents in primary fossil sectors
+    # and a Leontief fuel nest in secondary ones. The reduction to CP2015 with
+    # no fossil sectors designated is the structural anchor.
+    # -----------------------------------------------------------------------
+    @testset "Mahlkow & Wanner (2023)" begin
+        b = toy_baseline(N = 4, J = 4, seed = 1)
+        sc = Scenario(b); set_tariff!(sc, b, 1.2; from = "c2", to = "c1")
+
+        @testset "reduces to CP2015 without fossil sectors" begin
+            r_cp = update_equilibrium(CaliendoParro2015(), b, sc; TIGHT...)
+            r_mw = update_equilibrium(MahlkowWanner2023(b), b, sc; TIGHT...)
+            @test r_cp.ŵ ≈ r_mw.ŵ atol = 1e-12
+            @test r_cp.π′ ≈ r_mw.π′ atol = 1e-12
+            @test r_cp.Y′ ≈ r_mw.Y′ rtol = 1e-12
+            @test welfare_change(r_cp) ≈ welfare_change(r_mw) atol = 1e-12
+        end
+
+        m = MahlkowWanner2023(b; primary = ["s1"], secondary = ["s2" => "s1"],
+                              resource_share = 0.6)
+
+        @testset "no-change scenario is exact" begin
+            r = update_equilibrium(m, b; TIGHT...)
+            @test r.iterations == 1
+            @test r.ŵ ≈ ones(b.N) atol = 1e-12
+            @test r.P̂ ≈ ones(b.N, b.J) atol = 1e-12
+            @test r.ext.resource_price ≈ ones(b.N, 1) atol = 1e-12
+            @test r.X′ ≈ b.X rtol = 1e-12
+            @test welfare_change(r) ≈ ones(b.N) atol = 1e-12
+            @test all(≈(1.0), fossil_use(r).use_change)
+        end
+
+        @testset "factor prices and fuel use respond" begin
+            r = update_equilibrium(m, b, sc; TIGHT...)
+            @test r.converged
+
+            # Value added is labour income plus resource rents. It is *not* Σ_j β·Y′ any more:
+            # the Leontief nest moves a secondary sector's labour cost share away from β.
+            tr, tr_new = tariff_revenue(r)
+            es, es_new = export_subsidy_costs(r)
+            @test r.I′ ≈ r.VA′ .+ tr_new .+ es_new .- r.D′ rtol = 1e-6
+            @test !isapprox(r.VA′, vec(sum(b.β .* r.Y′, dims = 2)); rtol = 1e-9)
+
+            # the resource price moves, and rents stay a share of primary-sector output
+            @test !all(≈(1.0), r.ext.resource_price)
+            rp = resource_price_change(r)
+            @test nrow(rp) == b.N
+            @test all(rp.sector .== "s1")
+
+            fu = fossil_use(r)
+            @test nrow(fu) == b.N
+            @test all(fu.sector .== "s2")
+            @test !all(≈(1.0), fu.use_change)
+            @test all(>(0), fu.use_new)
+        end
+
+        @testset "Leontief nest reallocates cost shares, not quantities" begin
+            # make the primary fuel expensive to trade everywhere
+            scf = Scenario(b); set_ntb!(scf, b, 2.0; from = :all, to = :all, sector = "s1")
+            r = update_equilibrium(m, b, scf; TIGHT..., vfactor = 0.1)
+            @test r.converged
+            @test any(r.P̂[:, 1] .> 1)               # the fuel did get dearer
+
+            # Unit cost is a weighted average of the fuel price and the rest of the bundle, so
+            # the two cost-share changes always straddle one — the share of whichever input got
+            # relatively dearer rises, because the Leontief nest forbids substituting away.
+            γf = r.ext.fuel_cost_share_change
+            γo = r.ext.other_cost_share_change
+            @test all((γf .- 1) .* (γo .- 1) .≤ 1e-12)
+            @test !all(≈(1.0), γf)
+
+            # dearer fuel means less of it burned worldwide, though not necessarily in every
+            # country: trade diversion can raise a given country's use
+            fu = fossil_use(r)
+            @test sum(fu.use_new) < sum(fu.use)
+        end
+
+        @testset "configuration errors" begin
+            @test_throws ErrorException MahlkowWanner2023(b; primary = ["nope"])
+            @test_throws ErrorException MahlkowWanner2023(b; primary = ["s1"],
+                                                          secondary = ["s1" => "s1"])
+            @test_throws ErrorException MahlkowWanner2023(b; primary = ["s1"],
+                                                          resource_share = 1.5)
+            @test_throws ErrorException MahlkowWanner2023(b; primary = ["s1", "s1"])
+            # the Leontief nest is not a linear expenditure block
+            @test_throws ErrorException update_equilibrium(m, b, sc; TIGHT...,
+                                                           inner_solver = :direct)
+            # with only primary sectors it is, so :direct is allowed and agrees
+            mp = MahlkowWanner2023(b; primary = ["s1"], resource_share = 0.4)
+            ri = update_equilibrium(mp, b, sc; TIGHT...)
+            rd = update_equilibrium(mp, b, sc; TIGHT..., inner_solver = :direct)
+            @test ri.ŵ ≈ rd.ŵ atol = 1e-9
+        end
+    end
+
+    # -----------------------------------------------------------------------
+    # Antràs & Chor (2018): sourcing differs by using sector and between
+    # intermediate and final use.
+    # -----------------------------------------------------------------------
+    @testset "Antràs & Chor (2018)" begin
+        b = toy_baseline()
+        N, J = b.N, b.J
+        sc = Scenario(b); set_tariff!(sc, b, 1.2; from = "c2", to = "c1")
+
+        @testset "use-independent sourcing reduces to CP2015" begin
+            g = GVCBaseline(b)
+            @test g.base.π ≈ b.π
+            @test g.base.Y ≈ b.Y
+            @test g.base.D ≈ b.D
+            r_cp = update_equilibrium(CaliendoParro2015(), b, sc; TIGHT...)
+            r_ac = update_equilibrium(AntrasChor2018(), g, sc; TIGHT...)
+            @test r_cp.ŵ ≈ r_ac.ŵ atol = 1e-12
+            @test r_cp.π′ ≈ r_ac.π′ atol = 1e-12
+            @test r_cp.Y′ ≈ r_ac.Y′ rtol = 1e-11
+            @test welfare_change(r_cp) ≈ welfare_change(r_ac) atol = 1e-12
+        end
+
+        # genuinely use-specific sourcing, deterministic
+        πu = [b.π[o, d, j] * (1 + 0.6 * sin(o + 2k + 3j + d))
+              for o in 1:N, d in 1:N, j in 1:J, k in 1:J]
+        πf = [b.π[o, d, j] * (1 + 0.4 * cos(o + 5j + d)) for o in 1:N, d in 1:N, j in 1:J]
+        πu .= max.(πu, 1e-6); πf .= max.(πf, 1e-6)
+        g = GVCBaseline(b; π_use = πu, π_fin = πf, verbose = 0)
+
+        @testset "baseline is consistent and shares are proper" begin
+            res = residuals(g.base)
+            @test res.goods_market < 1e-10
+            @test res.expenditure < 1e-10
+            @test res.income < 1e-10
+            @test all(≈(1.0), sum(g.π_use, dims = 1))
+            @test all(≈(1.0), sum(g.π_fin, dims = 1))
+            @test all(≈(1.0), sum(g.base.π, dims = 1))
+            @test !isapprox(g.base.π, b.π)          # sourcing really did change
+        end
+
+        @testset "no-change scenario is exact" begin
+            r = update_equilibrium(AntrasChor2018(), g; TIGHT...)
+            @test r.iterations == 1
+            @test r.ŵ ≈ ones(N) atol = 1e-12
+            @test r.P̂ ≈ ones(N, J) atol = 1e-12
+            @test r.π′ ≈ g.base.π atol = 1e-12
+            @test r.Y′ ≈ g.base.Y rtol = 1e-12
+            @test r.ext.π_use′ ≈ g.π_use atol = 1e-12
+            @test r.ext.π_fin′ ≈ g.π_fin atol = 1e-12
+            @test r.ext.P̂_use ≈ ones(N, J, J) atol = 1e-12
+            @test welfare_change(r) ≈ ones(N) atol = 1e-12
+        end
+
+        @testset "use-specific sourcing changes the answer" begin
+            scg = Scenario(g.base); set_tariff!(scg, g.base, 1.25; from = "c2", to = "c1")
+            r = update_equilibrium(AntrasChor2018(), g, scg; TIGHT...)
+            @test r.converged
+            @test all(≈(1.0), sum(r.ext.π_use′, dims = 1))
+            @test all(≈(1.0), sum(r.ext.π_fin′, dims = 1))
+            @test all(≈(1.0), sum(r.π′, dims = 1))
+
+            # price indices genuinely differ across using sectors
+            @test maximum(r.ext.P̂_use[1, 1, :]) - minimum(r.ext.P̂_use[1, 1, :]) > 1e-6
+
+            # and the aggregate-sourcing counterfactual on the same baseline differs
+            r_agg = update_equilibrium(CaliendoParro2015(), g.base, scg; TIGHT...)
+            @test !isapprox(welfare_change(r), welfare_change(r_agg); atol = 1e-6)
+
+            # market clearing still holds
+            @test vec(sum(g.base.β .* r.Y′, dims = 2)) ≈ r.VA′
+            ta = trade_aggregates(r)
+            walras = ta.exports_new .- ta.imports_new .- r.D′
+            @test maximum(abs, walras) < 1e-6 * sum(g.base.VA)
+        end
+
+        @testset "configuration errors" begin
+            @test_throws ErrorException GVCBaseline(b; π_use = πu)
+            @test_throws ErrorException GVCBaseline(b; π_fin = πf)
+            @test_throws DimensionMismatch GVCBaseline(b; π_use = πu[:, :, :, 1:1],
+                                                        π_fin = πf, verbose = 0)
+            @test_throws ErrorException update_equilibrium(AntrasChor2018(), g;
+                                                            TIGHT..., inner_solver = :direct)
+        end
     end
 
     # -----------------------------------------------------------------------

@@ -41,8 +41,10 @@ import CSV
 import Tables
 import TOML
 
-export KiteModel, CaliendoParro2015, ChowdhryHinzKaminWanner2022,
-       KiteBaseline, Scenario, KiteResult, SolverSettings,
+export KiteModel, CaliendoParro2015, ChowdhryHinzKaminWanner2022, MahlkowWanner2023,
+       AntrasChor2018,
+       KiteBaseline, GVCBaseline, Scenario, KiteResult, SolverSettings,
+       fossil_use, resource_price_change,
        calibrate, residuals, baseline_from_long,
        load_baseline, read_baseline_csv, write_baseline,
        read_baseline_binary, write_baseline_binary,
@@ -63,6 +65,8 @@ include("workspace.jl")
 include("solve.jl")
 include("model_cp2015.jl")
 include("model_chkw2022.jl")
+include("model_mw2023.jl")
+include("model_ac2018.jl")
 include("results.jl")
 include("output.jl")
 include("io.jl")
