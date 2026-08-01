@@ -72,7 +72,7 @@ The port fixes three defects that change published results. Each is documented i
 | | R behaviour | KITE.jl |
 |---|---|---|
 | **Array casting** | `cast_variable()` reshapes long tables positionally, silently recycling values when a table is sparse. On the 2022 database 26,179 of 328,050 trade-share cells are absent and **99.9% of the resulting array is wrong** (column sums range 0.005–66 instead of 1). | Values are placed by label; absent cells take a documented fill and the count is reported; duplicates and unknown labels are errors. |
-| **Trade elasticity** | `^(-1/θ)` inside the price sum and `^(-θ)` outside — the inverse of Caliendo & Parro eq. (11)/(12). Internally consistent, so it silently solves a model with elasticity `1/θ`. With the shipped `θ ∈ [1.4, 14.8]` trade responses are 1–2 orders of magnitude too weak. | The published convention. Measured `dln π / dln τ` matches `−θ(1−π)`. |
+| **Trade elasticity** | The solver's parameter is the *dispersion* `1/elasticity` (`^(-1/θ)` inside the price sum, `^(-θ)` outside — CP eq. (11)/(12) reparameterised), following Chowdhry et al.'s Appendix B. But the shipped database and docs supply standard elasticities `θ ∈ [1.4, 14.8]`. The two disagree, so trade responses come out 1–2 orders of magnitude too weak. | `θ` is the standard elasticity, matching the whitepaper's eq. (13). Measured `dln π / dln τ` matches `−θ(1−π)`. |
 | **Baseline consistency** | Supplied levels are used as-is, so a no-change scenario does not reproduce the baseline. | `calibrate` enforces the identities; the no-change scenario is exact. |
 
 Smaller corrections, all in the Chowdhry–Hinz–Kamin–Wanner model: exports and imports are

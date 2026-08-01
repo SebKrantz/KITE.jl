@@ -22,15 +22,35 @@ inputs; they match a corrected R implementation to machine precision (see
   surfaced. KITE.jl places every value by label, fills absent cells with a documented default,
   reports how many were filled, and rejects duplicate or unknown labels.
 
-* **The trade-elasticity exponents were inverted.** R applies `^(-1/θ)` inside the price-index
-  sum and `^(-θ)` outside, the inverse of Caliendo & Parro equations (11) and (12). The
-  resulting system is still internally consistent — `Σ_o π′ = 1` continues to hold — so it
-  silently solves a well-posed model whose trade elasticity is `1/θ` rather than `θ`. With the
-  shipped elasticities `θ ∈ [1.40, 14.78]`, the effective values are `[0.068, 0.72]` and trade
-  reallocation is understated by one to two orders of magnitude; the outer `^(-θ)` exponent is
-  also numerically explosive. On a model-consistent economy the measured partial elasticity
-  `dln π / dln τ` is `−0.13` under the R convention against a theoretical `−3.34`. KITE.jl uses
-  the published convention, and a test asserts that raising `θ` strengthens the trade response.
+* **The solver's trade-elasticity convention contradicts the shipped data and documentation.**
+  R applies `^(-1/θ)` inside the price-index sum and `^(-θ)` outside. That is *not* an algebra
+  error: it is algebraically and computationally identical to Caliendo & Parro equations (11)
+  and (12) with `θ` replaced by `1/θ`, so the solver's parameter means the **dispersion**
+  `1/elasticity`, not the elasticity. It follows Chowdhry et al.'s Appendix B, which is
+  self-consistent with that paper's Table A.1 (values 0.04–0.78, i.e. reciprocals of the
+  Fontagné et al. elasticities it cites — though Chowdhry et al.'s own main text, eq. 4, uses
+  the opposite convention).
+
+  The defect is the mismatch. The shipped `initial_conditions_2022` supplies standard Fontagné
+  elasticities, `θ ∈ [1.40, 14.78]`, and `initial_conditions_format.md` documents the field as
+  "Fréchet shape parameter (trade elasticity) … typically 1–15" — the opposite of what the
+  solver expects. Feeding elasticities into a slot read as `1/elasticity` yields effective
+  elasticities of `[0.068, 0.72]`, understating trade reallocation by roughly a factor of `θ²`.
+  On a model-consistent economy the measured partial elasticity `dln π / dln τ` is `−0.13`
+  against a theoretical `−3.34`.
+
+  Verified directly: the **unmodified** R solver fed `1/θ` reproduces KITE.jl fed `θ` to 1e-11,
+  with identical iteration counts. KITE.jl takes `θ` as the standard elasticity, matching the
+  KITE whitepaper's equation (13), and a test asserts that raising `θ` strengthens the trade
+  response.
+
+  This is not a numerical-stability device. Both forms are CES price indices with
+  `d ln P̂ / d ln ĉ_o = π′_od`, so both are perfectly conditioned (sensitivities in `[0,1]`
+  summing to one) at every `θ` from 0.2 to 50; the inner power stays representable to `θ ≈ 150`
+  under a 10⁶ embargo, and underflow to zero is the correct economic limit anyway. Nor does the
+  mis-parameterisation help convergence: on the test fixture the correct `θ` converged in 46
+  iterations against 94 for the mis-fed one, and across a correctly parameterised sweep higher
+  `θ` converges *faster* (97 iterations at `θ = 0.2` down to 18 at `θ = 30`).
 
 * **The baseline was not required to be model-consistent.** R takes the supplied levels at face
   value. Because the shipped `consumption_share` is built from household consumption only while
