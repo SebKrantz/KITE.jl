@@ -1,3 +1,40 @@
+# Unreleased — regional labour mobility
+
+* **`FelbermayrEtAl2025`** — the regional model of Felbermayr, Hinz, Krantz, Mahlkow & Wanner
+  (2025), "Regional impact of global shocks", building on Baqaee & Farhi (2024) with labour
+  mobility after Caliendo, Dvorkin & Parro (2019). Four things distinguish it from
+  `CaliendoParro2015`:
+
+  * **Nested CES** rather than Cobb-Douglas — `σ` across sectors in consumption, `ρ` between
+    value added and intermediates, `κ` between labour and structures, `η` across intermediate
+    sectors. Every cost and expenditure share is therefore endogenous. Each nest's unit
+    elasticity is its Cobb-Douglas limit, a removable singularity that is special-cased; at
+    `σ = ρ = κ = η = 1` the shares stop moving, which is a regression test.
+  * **Two factors.** Labour is mobile within a group of regions; local structures are fixed and
+    earn a rent. Rents go into a *global portfolio* paid out in fixed shares `ι`, so a region's
+    income is not tied to the capital sited in it. `ι` is the residual that closes the income
+    identity — the role the trade balance plays in `calibrate`.
+  * **Labour mobility.** With `mobility = :mobile`, workers reallocate across regions of the
+    same group in proportion to real labour income until real wages are equalised. Each group's
+    labour force is conserved exactly. `mobility = :immobile` fixes it.
+  * **Tariff-revenue pooling.** Regions that are countries keep what they collect; regions in a
+    customs union pool it and redistribute by fixed shares.
+
+  Sourcing is use-specific, `π[o,d,j,k]` plus `π[o,d,j,C]`, as in Antràs & Chor (2018).
+  Tariffs stay product-specific. Adds `RegionalBaseline`, `calibrate_regional`,
+  `RegionalResult`, `labour_reallocation`, and `results(r; level = :region | :sector)`.
+
+  Validated by the no-change scenario returning unity in one iteration under all four
+  regime combinations, exact real-wage equalisation and labour conservation within mobility
+  groups, exact pooling, and factor-market and income identities at the solution.
+
+  Not yet implemented: the paper's appendix variant with frictional migration under Fréchet
+  location preferences (elasticity `λ`), which would nest both current regimes.
+
+  Note this model does **not** reduce to `CaliendoParro2015` even at unit elasticities: the
+  global rental portfolio pays each region a share of *world* capital income rather than the
+  return on its own capital, which is a substantive difference, not a normalisation.
+
 # 0.1.0
 
 First release: a Julia translation of the R package

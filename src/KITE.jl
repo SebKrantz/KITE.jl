@@ -41,8 +41,9 @@ import CSV
 import Tables
 import TOML
 
-export KiteModel, CaliendoParro2015, ChowdhryHinzKaminWanner2022,
-       KiteBaseline, Scenario, KiteResult, SolverSettings,
+export KiteModel, CaliendoParro2015, ChowdhryHinzKaminWanner2022, FelbermayrEtAl2025,
+       KiteBaseline, RegionalBaseline, Scenario, KiteResult, RegionalResult, SolverSettings,
+       calibrate_regional, labour_reallocation,
        calibrate, residuals, baseline_from_long,
        load_baseline, read_baseline_csv, write_baseline,
        read_baseline_binary, write_baseline_binary,
@@ -63,6 +64,7 @@ include("workspace.jl")
 include("solve.jl")
 include("model_cp2015.jl")
 include("model_chkw2022.jl")
+include("model_regional.jl")
 include("results.jl")
 include("output.jl")
 include("io.jl")

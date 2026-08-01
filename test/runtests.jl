@@ -34,6 +34,32 @@ function symmetric_baseline(; N = 3, J = 2)
                        θ = fill(5.0, J), X = fill(100.0, N, J), verbose = 0)
 end
 
+
+# Regional economy: 6 regions in 3 mobility groups, 5 of them in one tariff pool.
+function toy_regional(; N = 6, J = 3)
+    regions = ["A1", "A2", "A3", "B1", "B2", "C"]
+    group   = ["A", "A", "A", "B", "B", "C"]
+    pool    = ["EU", "EU", "EU", "EU", "EU", ""]
+    sectors = ["s$j" for j in 1:J]
+    h(a, b, c) = 0.3 + 0.7 * ((a * 7 + b * 13 + c * 29 + 5) % 11) / 10
+    πu = [h(o, d, j) * (1 + 0.3 * sin(o + 2k + 3j + d)) for o in 1:N, d in 1:N, j in 1:J, k in 1:J]
+    πf = [h(o, d, j) * (1 + 0.2 * cos(o + 5j + d)) for o in 1:N, d in 1:N, j in 1:J]
+    πu .= max.(πu, 1e-6); πf .= max.(πf, 1e-6)
+    τ = ones(N, N, J)
+    for o in 1:N, d in 1:N, j in 1:J
+        o == d || (τ[o, d, j] = 1.05)
+    end
+    L = [1.0, 1.5, 0.8, 2.0, 1.2, 3.0]
+    return calibrate_regional(;
+        regions = regions, sectors = sectors, π_use = πu, π_fin = πf,
+        βF = [0.30 + 0.25 * ((d * 3 + j * 7) % 7) / 7 for d in 1:N, j in 1:J],
+        γL = [0.55 + 0.25 * ((d * 5 + j * 3) % 5) / 5 for d in 1:N, j in 1:J],
+        γ = [h(d, k + 3, j + 5) for d in 1:N, k in 1:J, j in 1:J],
+        θ = [4.0, 5.5, 7.0],
+        F = [100.0 + 50 * ((d * 5 + j * 3) % 9) / 9 for d in 1:N, j in 1:J],
+        L = L, τ = τ, group = group, pool = pool, ζ = L, verbose = 0)
+end
+
 const TIGHT = (verbose = 0, tolerance = 1e-12, inner_tolerance = 1e-14,
                max_iterations = 20_000)
 const FIXTURE = joinpath(@__DIR__, "fixtures", "toy_3x2")
@@ -489,6 +515,122 @@ const FIXTURE = joinpath(@__DIR__, "fixtures", "toy_3x2")
                     @test julia_value ≈ row.value rtol = 1e-9
                 end
             end
+        end
+    end
+
+
+    # -----------------------------------------------------------------------
+    # Felbermayr et al. (2025): regions, two factors, nested CES, labour
+    # mobility and tariff pooling.
+    # -----------------------------------------------------------------------
+    @testset "Felbermayr et al. (2025) regional mobility" begin
+        rb = toy_regional()
+        CD  = (σ = 1.0, ρ = 1.0, κ = 1.0, η = 1.0)
+        CES = (σ = 1.5, ρ = 0.6, κ = 0.8, η = 0.2)
+
+        @testset "calibration" begin
+            res = residuals(rb)
+            @test res.goods_market < 1e-12
+            @test res.labour < 1e-12
+            @test res.structures < 1e-12
+            @test res.income < 1e-12
+            @test sum(rb.ι) ≈ 1.0                      # the portfolio is fully owned
+            @test all(≈(1.0), sum(rb.π_use, dims = 1))
+            @test all(≈(1.0), sum(rb.π_fin, dims = 1))
+            @test all(≈(1.0), sum(rb.α, dims = 2))
+            @test rb.I ≈ rb.wL .+ rb.ι .* sum(rb.rS) .+ rb.T
+        end
+
+        @testset "no-change scenario is exact" begin
+            for mob in (:immobile, :mobile), el in (CD, CES)
+                m = FelbermayrEtAl2025(; el..., mobility = mob)
+                r = update_equilibrium(m, rb; TIGHT...)
+                @test r.converged
+                @test r.iterations == 1
+                @test r.ŵ ≈ ones(rb.N) atol = 1e-12
+                @test r.r̂ ≈ ones(rb.N) atol = 1e-12
+                @test r.L̂ ≈ ones(rb.N) atol = 1e-12
+                @test r.P̂C ≈ ones(rb.N) atol = 1e-12
+                @test r.Y′ ≈ rb.Y rtol = 1e-12
+                @test r.I′ ≈ rb.I rtol = 1e-12
+                @test welfare_change(r) ≈ ones(rb.N) atol = 1e-12
+            end
+        end
+
+        sc = Scenario(rb); set_tariff!(sc, rb, 1.30; from = "C", to = :all)
+
+        # Unit elasticities are the Cobb-Douglas limit of each CES nest, in which cost and
+        # expenditure shares are constant. Anything else moves them.
+        @testset "unit elasticities give constant shares" begin
+            r = update_equilibrium(FelbermayrEtAl2025(; CD..., mobility = :immobile), rb, sc;
+                                   TIGHT...)
+            @test r.βF′ ≈ rb.βF
+            @test r.γL′ ≈ rb.γL
+            @test r.α′ ≈ rb.α
+            r2 = update_equilibrium(FelbermayrEtAl2025(; CES..., mobility = :immobile), rb, sc;
+                                    TIGHT...)
+            @test !isapprox(r2.βF′, rb.βF)
+            @test !isapprox(r2.α′, rb.α)
+        end
+
+        @testset "immobile labour stays put" begin
+            r = update_equilibrium(FelbermayrEtAl2025(; CES..., mobility = :immobile), rb, sc;
+                                   TIGHT...)
+            @test all(==(1.0), r.L̂)
+        end
+
+        # The defining property: workers reallocate within a group until real wages are equal,
+        # and the group's labour force is conserved.
+        @testset "mobile labour equalises real wages within groups" begin
+            m = FelbermayrEtAl2025(; CES..., mobility = :mobile)
+            r = update_equilibrium(m, rb, sc; TIGHT..., vfactor = 0.1)
+            @test r.converged
+            rw = real_wage_change(r)
+            for g in unique(rb.group)
+                idx = findall(==(g), rb.group)
+                @test sum(rb.L[idx] .* r.L̂[idx]) ≈ sum(rb.L[idx]) rtol = 1e-10
+                @test maximum(rw[idx]) - minimum(rw[idx]) < 1e-8
+            end
+            @test !all(≈(1.0), r.L̂)          # labour actually moved
+
+            r_im = update_equilibrium(FelbermayrEtAl2025(; CES..., mobility = :immobile), rb,
+                                      sc; TIGHT...)
+            @test !isapprox(welfare_change(r), welfare_change(r_im); atol = 1e-6)
+        end
+
+        @testset "tariff pooling" begin
+            r = update_equilibrium(FelbermayrEtAl2025(; CES..., mobility = :mobile), rb, sc;
+                                   TIGHT..., vfactor = 0.1)
+            eu = findall(==(1), rb.pool)
+            own = findall(==(0), rb.pool)
+            # pooled members receive their ζ share of the pool's total
+            @test r.T′[eu] ./ sum(r.T′[eu]) ≈ rb.ζ[eu] ./ sum(rb.ζ[eu])
+            @test length(own) > 0
+        end
+
+        @testset "market clearing at the solution" begin
+            r = update_equilibrium(FelbermayrEtAl2025(; CES..., mobility = :mobile), rb, sc;
+                                   TIGHT..., vfactor = 0.1)
+            @test all(≈(1.0), sum(r.π_use′, dims = 1))
+            @test all(≈(1.0), sum(r.π_fin′, dims = 1))
+            lab = vec(sum(r.βF′ .* r.γL′ .* r.Y′, dims = 2))
+            rent = vec(sum(r.βF′ .* (1 .- r.γL′) .* r.Y′, dims = 2))
+            @test lab ≈ r.ŵ .* r.L̂ .* rb.wL rtol = 1e-8
+            @test rent ≈ r.r̂ .* rb.rS rtol = 1e-8
+            @test r.I′ ≈ r.ŵ .* r.L̂ .* rb.wL .+ rb.ι .* sum(r.r̂ .* rb.rS) .+ r.T′ rtol = 1e-8
+        end
+
+        @testset "results tables and option validation" begin
+            r = update_equilibrium(FelbermayrEtAl2025(; CES..., mobility = :mobile), rb, sc;
+                                   TIGHT..., vfactor = 0.1)
+            @test nrow(results(r)) == rb.N
+            @test nrow(results(r; level = :sector)) == rb.N * rb.J
+            @test nrow(labour_reallocation(r)) == rb.N
+            @test_throws ErrorException results(r; level = :nonsense)
+            @test_throws ErrorException FelbermayrEtAl2025(mobility = :nonsense)
+            @test_throws ErrorException FelbermayrEtAl2025(ρ = -1)
+            @test_throws ErrorException update_equilibrium(
+                FelbermayrEtAl2025(; CES...), rb, sc; TIGHT..., inner_solver = :direct)
         end
     end
 
