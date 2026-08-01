@@ -14,6 +14,7 @@
 # Usage:  Rscript dev/validate_against_R.R [R-KITE-path] [fixture-dir] [output-csv]
 
 suppressMessages(library(data.table))
+suppressMessages(library(collapse))
 
 args <- commandArgs(trailingOnly = TRUE)
 rkite <- if (length(args) >= 1) args[1] else "~/Documents/R/KITE"
@@ -56,17 +57,21 @@ ts <- rd("trade_share")
 countries <- sort(unique(c(ts$origin, ts$destination)))
 sectors <- sort(unique(ts$sector))
 
-grid3 <- function(x, fill) {
+# Expand a (possibly sparse) table to the complete Cartesian grid. The join is reported so the
+# match rate is visible: a silent mismatch here would corrupt the golden reference.
+grid3 <- function(x, fill, label) {
     g <- CJ(origin = countries, destination = countries, sector = sectors, sorted = FALSE)
     if (is.null(x)) { g[, value := fill]; return(g[]) }
-    setkey(x, origin, destination, sector)
-    g[, value := x[.(g$origin, g$destination, g$sector), value]]
+    cat("\njoining ", label, ":\n", sep = "")
+    g <- collapse::join(g, x, on = c("origin", "destination", "sector"),
+                        how = "left", verbose = 2)
+    setDT(g)
     g[is.na(value), value := fill][]
 }
 
-trade_share <- grid3(ts, 0)
-tariff <- grid3(rd("tariff"), 1)
-export_subsidy <- grid3(rd("export_subsidy"), 1)
+trade_share <- grid3(ts, 0, "trade_share")
+tariff <- grid3(rd("tariff"), 1, "tariff")
+export_subsidy <- grid3(rd("export_subsidy"), 1, "export_subsidy")
 
 ic <- list(
     trade_share        = trade_share,
