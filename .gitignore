@@ -37,3 +37,4 @@ JuliaLocalPreferences.toml
 # Locally built baselines (published as artifacts, not committed)
 data/kite_baseline_*/
 dev/data/
+dev/emerging/build/
