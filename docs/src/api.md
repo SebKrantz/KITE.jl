@@ -16,7 +16,6 @@ CaliendoParro2015
 ChowdhryHinzKaminWanner2022
 MahlkowWanner2023
 AntrasChor2018
-FelbermayrEtAl2025
 ```
 
 ## Baselines
@@ -24,8 +23,6 @@ FelbermayrEtAl2025
 ```@docs
 KiteBaseline
 GVCBaseline
-RegionalBaseline
-calibrate_regional
 calibrate
 residuals
 load_baseline
@@ -56,7 +53,6 @@ caliendo_parro_2015
 chowdhry_hinz_kamin_wanner_2022
 SolverSettings
 KiteResult
-RegionalResult
 ```
 
 ## Results
@@ -76,7 +72,6 @@ trade_flows
 trade_aggregates
 fossil_use
 resource_price_change
-labour_reallocation
 ```
 
 ## Index

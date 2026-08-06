@@ -20,11 +20,9 @@ Models in this package:
 | `ChowdhryHinzKaminWanner2022` | sanction-coalition transfers that equalise the welfare cost |
 | `MahlkowWanner2023` | natural-resource rents and a Leontief fossil-fuel nest, for carbon |
 | `AntrasChor2018` | use-specific sourcing — global value chains |
-| `FelbermayrEtAl2025` | regions, two factors, nested CES, labour mobility, tariff pooling |
 
-The middle two follow specifications in the KITE whitepaper that are not in the public R
-package (the closed KITE suite implements many more models). The last implements a working
-paper on the regional incidence of global shocks.
+The last two follow specifications in the KITE whitepaper that are not in the public R package
+(the closed KITE suite implements many more models).
 
 ## Installation
 
@@ -131,7 +129,7 @@ deterministic stride, so runs are reproducible.
   solution, numéraire invariance, monotonicity in `θ`, trade diversion, the autarky limit,
   symmetric-world symmetry, and agreement between the iterative and direct inner solvers.
 
-278 tests in total.
+345 tests in total.
 
 ## Performance
 

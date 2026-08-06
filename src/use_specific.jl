@@ -1,5 +1,4 @@
-# Kernels for use-specific sourcing, shared by the models that distinguish who is buying:
-# [`AntrasChor2018`](@ref) and [`FelbermayrEtAl2025`](@ref).
+# Kernels for use-specific sourcing, used by [`AntrasChor2018`](@ref).
 #
 # Both replace Caliendo & Parro's single trade share π[o,d,j] with one share per *using* sector,
 # π[o,d,j,k], plus π[o,d,j,C] for final consumption. Tariffs stay product-specific — τ[o,d,j],
