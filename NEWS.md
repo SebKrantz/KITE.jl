@@ -2,8 +2,9 @@
 
 ## New models
 
-The first two are documented in the KITE whitepaper but were never implemented in the R
-package; the third implements a working paper.
+The first two follow specifications in the KITE whitepaper that are not in the public R
+package (the closed KITE suite implements many more models); the third implements a working
+paper.
 
 * **`MahlkowWanner2023`** — carbon/energy extension (whitepaper §2.4, eqs. 23–29). Primary
   fossil-fuel sectors extract a natural resource in fixed supply, so their rental price is
@@ -80,21 +81,17 @@ First release: a Julia translation of the R package
 
 ## Corrections to the R implementation
 
-Three defects in the R package change the numbers it produces. All three are fixed here, and
-each has a regression test. Results from KITE.jl will **not** match the R package on the same
-inputs; they match a corrected R implementation to machine precision (see
+Several issues in the public R package can change the numbers it produces. They are fixed here,
+each with a regression test. Results from KITE.jl will **not** always match the R package on the
+same inputs; they match a corrected R implementation to machine precision (see
 `dev/validate_against_R.R`).
 
-* **Long tables were reshaped positionally, corrupting every sparse variable.** R's
-  `cast_variable()` builds arrays with `array(x[, value], dim = ...)`, where `dim` is the full
-  Cartesian grid implied by the index columns. When a table has fewer rows than that grid — the
-  norm for real MRIO data — R recycles values silently, so every entry after the first gap lands
-  in the wrong cell. On the shipped 2022 database `trade_share` has 301,871 of 328,050 cells,
-  and **99.9% of the cast array differs from the correct one**: column sums that must equal one
-  range from 0.005 to 66. `expenditure` and `consumption_share` are each missing 10 cells. The
-  package's own test fixtures build complete grids with `CJ()`, which is why this never
-  surfaced. KITE.jl places every value by label, fills absent cells with a documented default,
-  reports how many were filled, and rejects duplicate or unknown labels.
+* **The outer convergence criterion monitored only wages.** A shock that is symmetric across
+  countries can leave `ŵ` at its fixed point from the first iteration while prices are still
+  propagating through the input-output linkages, so the solver stopped early with a price vector
+  that did not satisfy its own input-cost equation. The criterion now covers the price block as
+  well (see the Fixed section above for measured magnitudes). This affects
+  `CaliendoParro2015` and `ChowdhryHinzKaminWanner2022` in the public R package too.
 
 * **The solver's trade-elasticity convention contradicts the shipped data and documentation.**
   R applies `^(-1/θ)` inside the price-index sum and `^(-θ)` outside. That is *not* an algebra
@@ -134,6 +131,16 @@ inputs; they match a corrected R implementation to machine precision (see
   closes the income identity through the trade balance. The `KiteBaseline` constructor refuses
   data that violates the goods-market, expenditure or income identity, so a no-change scenario
   is exact in one iteration.
+
+* **Long tables were reshaped positionally when incomplete.** R's `cast_variable()` builds
+  arrays with `array(x[, value], dim = ...)`, where `dim` is the full Cartesian grid implied by
+  the index columns. This is harmless when initial conditions are square (complete grids) — as
+  in the package's own test fixtures built with `CJ()` — but when a table has fewer rows than
+  that grid, R recycles values silently and every entry after the first gap lands in the wrong
+  cell. On an incomplete 2022 extract, `trade_share` had 301,871 of 328,050 cells and column
+  sums that must equal one ranged from 0.005 to 66; `expenditure` and `consumption_share` were
+  each missing 10 cells. KITE.jl places every value by label, fills absent cells with a
+  documented default, reports how many were filled, and rejects duplicate or unknown labels.
 
 ## Smaller corrections
 

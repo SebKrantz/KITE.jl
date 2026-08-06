@@ -390,9 +390,8 @@ const FIXTURE = joinpath(@__DIR__, "fixtures", "toy_3x2")
     end
 
     # -----------------------------------------------------------------------
-    # Loading: values must be placed by label, never by position. A sparse
-    # table is the norm for real MRIO data, and reshaping it positionally is
-    # what corrupts 99.9% of the R implementation's trade-share array.
+    # Loading: values must be placed by label, never by position. Positional
+    # reshape is fine for square grids; on sparse tables it silently recycles.
     # -----------------------------------------------------------------------
     @testset "loading and round-trip" begin
         b = read_baseline_csv(FIXTURE; verbose = 0)

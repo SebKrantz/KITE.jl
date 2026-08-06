@@ -8,8 +8,9 @@ Quantitative multi-sector Ricardian trade models, solved in changes ("exact hat 
 
 KITE.jl evaluates counterfactual trade policy — tariffs, non-tariff barriers, sanctions, export
 subsidies — in the framework of Caliendo & Parro (2015) and the sanctions-coalition extension of
-Chowdhry, Hinz, Kamin & Wanner (2022). It is a Julia translation of the R package
-[KITE](https://github.com/julianhinz/KITE).
+Chowdhry, Hinz, Kamin & Wanner (2022). It is a Julia translation of the public R package
+[KITE](https://github.com/julianhinz/KITE) (Kiel Institute Trade Policy Evaluation). Please cite
+the model suite as Hinz, Mahlkow & Wanner (2025); see `CITATION.bib`.
 
 ## Installation
 
@@ -69,7 +70,8 @@ across a sanctioning coalition.
 
 ## Extensions
 
-Two further models from the KITE whitepaper, neither implemented in the R package:
+Two further models from the KITE whitepaper that are not in the public R package (the closed
+KITE suite implements many more):
 
 [`MahlkowWanner2023`](@ref) adds energy. Primary fossil-fuel sectors extract a natural resource
 in fixed supply, so its rental price is solved for alongside wages and rents are part of income.
@@ -145,13 +147,17 @@ Tables may be sparse: absent cells take a documented fill and the number filled 
 
 ## Differences from the R implementation
 
-Three defects in the R package change the numbers it produces; all are fixed here. In brief:
+Several issues in the public R package can change the numbers it produces; they are fixed here.
+In brief:
 
-1. `cast_variable()` reshapes long tables positionally and silently recycles values when a table
-   is sparse — 99.9% of the shipped 2022 trade-share array is wrong.
-2. The trade-elasticity exponents are inverted, so it solves a model with elasticity `1/θ`.
+1. The outer convergence criterion monitored only wages, so shocks that move prices but not
+   wages could stop early with inconsistent prices.
+2. The trade-elasticity exponents are inverted relative to the shipped data and docs, so it
+   solves a model with elasticity `1/θ`.
 3. The baseline is not required to be model-consistent, so a no-change scenario does not
    reproduce it.
+4. `cast_variable()` reshapes long tables positionally — harmless for square initial conditions,
+   but silently recycles values when a table is sparse.
 
 Plus several smaller corrections to `ChowdhryHinzKaminWanner2022`. See `NEWS.md` for the full
 account with measured magnitudes.
@@ -167,6 +173,9 @@ agreement between the iterative and direct inner solvers.
 
 ## References
 
+* *Hinz, J., Mahlkow, H. and Wanner, J. (2025).* The KITE Model Suite: A Quantitative Framework
+  for International Trade Analysis. **White Paper**, Kiel Institute for the World Economy.
+  https://trade.ifw-kiel.de/KTTM/KITE_whitepaper.pdf
 * *Caliendo, L. and Parro, F. (2015).* Estimates of the Trade and Welfare Effects of NAFTA.
   **Review of Economic Studies**, 82(1), 1–44.
 * *Chowdhry, S., Hinz, J., Kamin, K. and Wanner, J. (2024).* Brothers in arms: The value of

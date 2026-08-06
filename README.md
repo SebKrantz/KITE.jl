@@ -8,10 +8,11 @@
 
 KITE.jl evaluates counterfactual trade policy — tariffs, non-tariff barriers, sanctions, export
 subsidies — in the general-equilibrium framework of Caliendo & Parro (2015). It is a Julia
-translation of the R package [KITE](https://github.com/julianhinz/KITE) (Kiel Institute Trade
-Policy Evaluation), rewritten around a model-consistent baseline and dense arrays.
+translation of the public R package [KITE](https://github.com/julianhinz/KITE) (Kiel Institute
+Trade Policy Evaluation), rewritten around a model-consistent baseline and dense arrays.
+Please cite the model suite as Hinz, Mahlkow & Wanner (2025); see [CITATION.bib](CITATION.bib).
 
-Four models:
+Models in this package:
 
 | model | adds |
 |---|---|
@@ -21,8 +22,9 @@ Four models:
 | `AntrasChor2018` | use-specific sourcing — global value chains |
 | `FelbermayrEtAl2025` | regions, two factors, nested CES, labour mobility, tariff pooling |
 
-The middle two were documented in the KITE whitepaper but never implemented in R; the last
-implements a working paper on the regional incidence of global shocks.
+The middle two follow specifications in the KITE whitepaper that are not in the public R
+package (the closed KITE suite implements many more models). The last implements a working
+paper on the regional incidence of global shocks.
 
 ## Installation
 
@@ -100,14 +102,15 @@ made residual, and the trade balance closes the income identity.
 
 ## Differences from the R implementation
 
-The port fixes three defects that change published results. Each is documented in
-[NEWS.md](NEWS.md) and guarded by a regression test.
+The port corrects several issues that can change results relative to the public R package.
+Each is documented in [NEWS.md](NEWS.md) and guarded by a regression test.
 
 | | R behaviour | KITE.jl |
 |---|---|---|
-| **Array casting** | `cast_variable()` reshapes long tables positionally, silently recycling values when a table is sparse. On the 2022 database 26,179 of 328,050 trade-share cells are absent and **99.9% of the resulting array is wrong** (column sums range 0.005–66 instead of 1). | Values are placed by label; absent cells take a documented fill and the count is reported; duplicates and unknown labels are errors. |
+| **Convergence criterion** | The outer loop monitors only wages. A shock that is symmetric across countries can leave `ŵ` fixed from the first iteration while prices are still propagating through IO linkages, so the solver stops early with prices that do not satisfy the input-cost equation. | The criterion covers the price block as well. |
 | **Trade elasticity** | The solver's parameter is the *dispersion* `1/elasticity` (`^(-1/θ)` inside the price sum, `^(-θ)` outside — CP eq. (11)/(12) reparameterised), following Chowdhry et al.'s Appendix B. But the shipped database and docs supply standard elasticities `θ ∈ [1.4, 14.8]`. The two disagree, so trade responses come out 1–2 orders of magnitude too weak. | `θ` is the standard elasticity, matching the whitepaper's eq. (13). Measured `dln π / dln τ` matches `−θ(1−π)`. |
 | **Baseline consistency** | Supplied levels are used as-is, so a no-change scenario does not reproduce the baseline. | `calibrate` enforces the identities; the no-change scenario is exact. |
+| **Array casting** | `cast_variable()` reshapes long tables positionally. This is harmless when initial conditions are square (complete Cartesian grids), but silently recycles values when a table is sparse. On an incomplete 2022 extract, 26,179 of 328,050 trade-share cells were absent and column sums ranged 0.005–66 instead of 1. | Values are placed by label; absent cells take a documented fill and the count is reported; duplicates and unknown labels are errors. |
 
 Smaller corrections, all in the Chowdhry–Hinz–Kamin–Wanner model: exports and imports are
 deflated by `τ′ζ′` rather than `τ′` alone; the transfer step uses the counterfactual trade
@@ -138,6 +141,9 @@ contiguous slices, and a steady-state outer iteration allocates nothing.
 
 ## References
 
+* *Hinz, J., Mahlkow, H. and Wanner, J. (2025).* The KITE Model Suite: A Quantitative Framework
+  for International Trade Analysis. **White Paper**, Kiel Institute for the World Economy.
+  https://trade.ifw-kiel.de/KTTM/KITE_whitepaper.pdf
 * *Caliendo, L. and Parro, F. (2015).* Estimates of the Trade and Welfare Effects of NAFTA.
   **Review of Economic Studies**, 82(1), 1–44.
 * *Chowdhry, S., Hinz, J., Kamin, K. and Wanner, J. (2024).* Brothers in arms: The value of
@@ -148,5 +154,6 @@ contiguous slices, and a steady-state outer iteration allocates nothing.
 ## Licence
 
 GPL-3, inherited from the R package this translates. KITE is a product of the Kiel Institute
-for the World Economy; see [CITATION.bib](CITATION.bib) and contact `KITE@kielinstitut.de`
-regarding commercial use.
+for the World Economy; please cite Hinz, Mahlkow & Wanner (2025) when referring to the model
+suite (see [CITATION.bib](CITATION.bib)) and contact `KITE@kielinstitut.de` regarding commercial
+use.

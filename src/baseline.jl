@@ -1,11 +1,9 @@
 # Long-format tables → dense arrays.
 #
-# Every value is placed by *label*, never by position. This matters: real MRIO tables are
-# sparse (the shipped 2022 database omits 26,179 of 328,050 trade-share cells and 10 of 4,050
-# expenditure cells), and reshaping such a table positionally silently recycles values into the
-# wrong cells. The R implementation does exactly that in `cast_variable`, which scrambles 99.9%
-# of its trade-share array. Here, missing cells take an explicit `fill` and the count is
-# reported, duplicates are an error, and unknown labels are an error.
+# Every value is placed by *label*, never by position. Positional reshape (`cast_variable` in
+# the public R package) is fine when initial conditions are square; on incomplete grids it
+# silently recycles values into the wrong cells. Here, missing cells take an explicit `fill`
+# and the count is reported, duplicates are an error, and unknown labels are an error.
 
 """
     _scatter3(v1, v2, v3, values, lab1, lab2, lab3; fill = 0.0, name = "variable", verbose = 1)

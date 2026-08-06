@@ -2,10 +2,11 @@
     KITE
 
 Quantitative multi-sector Ricardian general-equilibrium trade models, solved in changes
-("exact hat algebra"). A Julia translation of the R package
+("exact hat algebra"). A Julia translation of the public R package
 [KITE](https://github.com/julianhinz/KITE) (Kiel Institute Trade Policy Evaluation).
+Please cite the model suite as Hinz, Mahlkow & Wanner (2025); see `CITATION.bib`.
 
-Two models are implemented:
+Core models:
 
 * [`CaliendoParro2015`](@ref) — Caliendo & Parro (2015), the multi-sector Ricardian core with
   input-output linkages, tariffs, non-tariff barriers and export taxes/subsidies.
@@ -27,8 +28,8 @@ A [`KiteBaseline`](@ref) is model-consistent by construction — [`calibrate`](@
 goods-market, expenditure and income identities, so a no-change scenario reproduces the baseline
 exactly. See [`update_equilibrium`](@ref) for the solver and its settings.
 
-This port corrects three defects in the R implementation that affect published results; see the
-`NEWS.md` file and the "Differences from the R implementation" section of the manual.
+See `NEWS.md` and the "Differences from the R implementation" section of the manual for how this
+port relates to the public R package.
 """
 module KITE
 
