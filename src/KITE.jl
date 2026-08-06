@@ -56,6 +56,13 @@ export KiteModel, CaliendoParro2015, ChowdhryHinzKaminWanner2022, MahlkowWanner2
        price_index, price_index_change, welfare_change, real_wage_change,
        tariff_revenue, export_subsidy_costs, trade_flows, trade_aggregates
 
+# Cooperative abort + live progress for embedding applications (web front-ends, notebooks).
+# `update_equilibrium` publishes its outer-loop state into SOLVE_PROGRESS after every
+# iteration and returns early (with `converged = false`) when ABORT_SOLVE is set. Both are
+# process-global, so embedders must serialise solves (one at a time).
+const ABORT_SOLVE = Ref(false)
+const SOLVE_PROGRESS = Ref((iter = 0, criterion = Inf, inner = 0))
+
 include("settings.jl")   # SolverSettings is a field type of KiteResult, so it comes first
 include("types.jl")
 include("convergence.jl")

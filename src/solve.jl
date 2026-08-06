@@ -40,6 +40,7 @@ function update_equilibrium(model::KiteModel, b::KiteBaseline, sc::Scenario,
     inner_ok = true
     inner_total = 0
     iter = 0
+    SOLVE_PROGRESS[] = (iter = 0, criterion = Inf, inner = 0)
 
     while iter < settings.max_iterations
         iter += 1
@@ -72,6 +73,11 @@ function update_equilibrium(model::KiteModel, b::KiteBaseline, sc::Scenario,
         if settings.verbose ≥ 2
             @printf("  iteration %4d   criterion %.3e   inner %d\n", iter, criterion, n_inner)
         end
+
+        # Publish progress for embedders and honour a cooperative abort request. An aborted
+        # run falls through to the post-loop convergence test and reports `converged = false`.
+        SOLVE_PROGRESS[] = (iter = iter, criterion = criterion, inner = n_inner)
+        ABORT_SOLVE[] && break
 
         converged = criterion ≤ settings.tolerance &&
                     (!settings.require_inner_convergence || inner_ok)
