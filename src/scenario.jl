@@ -172,3 +172,22 @@ function set_coalition!(sc::Scenario, b, countries)
     end
     return sc
 end
+
+"""
+    _apply_carbon_wedge!(sc, b, P̂)
+
+Refresh `τ′` for a specific carbon price, `τ′ = τ · (1 + price·χ / P̂)`. Called once per outer
+iteration; a no-op when no specific price is set. `P̂` is the current sectoral price-index change,
+so at the baseline (`P̂ = 1`) this coincides with the `:ad_valorem` basis.
+"""
+function _apply_carbon_wedge!(sc::Scenario, b, P̂::AbstractMatrix)
+    sc.carbon_specific || return sc
+    @inbounds for j in axes(sc.carbon, 2), d in axes(sc.carbon, 1)
+        w = sc.carbon[d, j]
+        w == 0 && continue
+        f = 1 + w / P̂[d, j]
+        @views @. sc.τ′[:, d, j] = b.τ[:, d, j] * f
+    end
+    return sc
+end
+

@@ -33,6 +33,14 @@ function update_equilibrium(model::KiteModel, b::KiteBaseline, sc::Scenario,
     _check_scenario(model, b, sc)
     _check_conformable(b, sc)
 
+    # A specific carbon price is revised as the solver goes, so work on a copy: the caller's
+    # scenario must not come back mutated. The result carries the copy, which is informative —
+    # its τ′ records the ad-valorem equivalent the price worked out to in equilibrium.
+    if sc.carbon_specific
+        sc = _copy_scenario(sc)
+        _apply_carbon_wedge!(sc, b, ones(b.N, b.J))   # evaluate at baseline prices to start
+    end
+
     ws = _Workspace(b, sc, _model_state(model, b, sc))
     num_index = _numeraire_index(b, settings.numeraire)
 
@@ -46,6 +54,11 @@ function update_equilibrium(model::KiteModel, b::KiteBaseline, sc::Scenario,
         iter += 1
         copyto!(ws.ŵ_prev, ws.ŵ)
         copyto!(ws.P̂_prev, ws.P̂)
+
+        if sc.carbon_specific
+            _apply_carbon_wedge!(sc, b, ws.P̂)
+            _refresh_wedges!(ws.φ̂, ws.W, b, sc)
+        end
 
         _input_cost!(model, ws, b, sc)
         _price_index!(ws, b)

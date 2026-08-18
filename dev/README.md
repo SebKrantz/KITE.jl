@@ -160,25 +160,50 @@ EMERGING's row order into KITE labels.
 
 #### On the ICIO baseline
 
-The same machinery runs on the 81 × 50 ICIO baseline, with a satellite of CO₂ by country and
-ICIO industry as an `(N, J)` matrix — the layout the OECD's own embodied-CO₂ data uses:
+`icio_emissions.jl` runs the same machinery on the 81 × 50 ICIO baseline.
+
+**The satellite is missing and has to be supplied.** Unlike EMERGING, which ships CO₂ with the
+MRIO, nothing ICIO-aligned exists in this repository or in `~/Documents/R/KITE/data/raw`. The
+script therefore falls back to a **synthetic** satellite and labels every heading
+`[SYNTHETIC — not a result]`. That branch is a code-path check only: it confirms the ICIO
+configuration calibrates, that the three footprints agree (5 × 10⁻¹⁶), that country totals
+reproduce the satellite (8 × 10⁻¹⁶), and that both a tariff and a carbon price converge — in
+about 0.2 s at this size. It says nothing about actual emissions.
+
+To make it real, obtain CO₂ by country and ICIO industry — the OECD's own embodied-CO₂ data is
+the natural source, and IEA or EDGAR aggregated to the ICIO industry list also works — and save
+it as `dev/data/2022/co2_by_sector.csv` with columns `country, sector, value` using the
+baseline's own codes. The script picks it up automatically; nothing else changes.
+
+**Expect it to be coarser than EMERGING, for reasons of classification rather than code.** ICIO
+puts crude petroleum and natural gas in one sector (`B06`) and gas distribution inside
+electricity supply (`D`). So natural gas cannot be given its own Leontief link, gas burnt
+directly cannot be separated from oil, and the distributed-gas channel disappears — three of the
+model's mechanisms are simply not identified. EMERGING resolves `COAL`, `OIL`, `GAS`, `PETR`,
+`GASD` and `ELY` separately and loses none of them. If the question is about carbon, prefer the
+EMERGING baseline.
+
+### Carbon pricing
+
+`set_carbon_price!` prices combustion as an origin-neutral wedge — a `τ′` uniform across origins
+including the diagonal — so revenue is collected on the domestic base and sourcing is left
+undistorted. A border carbon adjustment is this plus an ordinary `set_tariff!` on the imports.
 
 ```julia
-b = load_baseline(year = 2022)
-m0 = MahlkowWanner2023(b; primary = ["B05", "B06"], secondary = Any["B05", "C19" => "B06"])
-χ  = emission_intensity_from_satellite(b, m0, co2)          # co2[d, k], country × industry
-m  = MahlkowWanner2023(b; primary = ["B05", "B06"], secondary = Any["B05", "C19" => "B06"],
-                       emission_intensity = χ)
-emissions(update_equilibrium(m, b, sc))
+sc = Scenario(b; label = "ETS at 100 USD/t")
+set_carbon_price!(sc, b, model, 100.0; country = eu_members)   # :specific by default
+r  = update_equilibrium(model, b, sc; vfactor = 0.05)
+r.scenario.τ′        # the ad-valorem equivalent the price worked out to in equilibrium
 ```
 
-**It will be coarser than EMERGING, and the reason is the sector classification, not the code.**
-ICIO puts crude petroleum and natural gas in one sector (`B06`) and gas distribution inside
-electricity supply (`D`). So natural gas cannot be given its own Leontief link, gas burnt
-directly cannot be separated from oil, and the distributed-gas channel disappears — three of
-the model's mechanisms are simply not identified. EMERGING resolves `COAL`, `OIL`, `GAS`,
-`PETR`, `GASD` and `ELY` separately and loses none of them. If the question is about carbon,
-prefer the EMERGING baseline.
+Use the default `basis = :specific` for a genuine price per tonne: its ad-valorem equivalent is
+`1 + price·χ/P̂` and the solver revises it as the fuel price moves. The `:ad_valorem` shortcut
+freezes it at baseline prices, and the difference is not cosmetic — on the test fixture it is 4%
+of the emission effect at a small price and 30% at a large one.
+
+Read the answers as a **lower bound**: under the Cobb-Douglas input nest the quantity response to
+a fuel price is mechanically unit-elastic, so there is no fuel-switching margin beyond the
+expenditure-share arithmetic. A CES energy nest would change that and would be a separate model.
 
 ### Solver setting
 

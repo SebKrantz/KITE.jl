@@ -53,7 +53,7 @@ export KiteModel, CaliendoParro2015, ChowdhryHinzKaminWanner2022, MahlkowWanner2
        load_baseline, read_baseline_csv, write_baseline,
        read_baseline_binary, write_baseline_binary,
        set_tariff!, set_ntb!, set_export_subsidy!, set_productivity!, set_population!,
-       set_coalition!,
+       set_coalition!, set_carbon_price!,
        update_equilibrium, caliendo_parro_2015, chowdhry_hinz_kamin_wanner_2022,
        results, country_results, sector_results, bilateral_results,
        price_index, price_index_change, welfare_change, real_wage_change,

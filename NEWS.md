@@ -40,6 +40,28 @@ paper.
   layout, fitted). Both make baseline territorial emissions reproduce the satellite's country
   totals.
 
+## Carbon pricing
+
+* **`set_carbon_price!`** prices the carbon released when fuel is burnt, so ETS-style policy and
+  border carbon adjustment can be evaluated rather than only the emission consequences of trade
+  policy. A carbon price falls on a country's *absorption* of fuel wherever it came from, which
+  is a `τ′` set uniformly across origins **including the diagonal** — the existing machinery
+  then collects revenue on the whole domestic base and leaves sourcing undistorted, because the
+  wedge is common to every origin. A border adjustment is this plus an ordinary `set_tariff!`.
+
+  `basis = :specific` (the default) is a genuine price per tonne. Its ad-valorem equivalent is
+  `1 + price·χ/P̂`, so the solver revises the wedge each outer iteration and `Scenario` carries
+  the price alongside `τ′`; `update_equilibrium` works on a copy, and the returned result's
+  scenario records the ad-valorem rate the price worked out to in equilibrium. The distinction
+  is not cosmetic — on the test fixture a small price differs from the `:ad_valorem` shortcut by
+  4% in its emission effect and a large one by 30%, because the fuel price itself moves a long
+  way. `basis = :ad_valorem` freezes the wedge at baseline prices and works with any model.
+
+  Note what the answer rests on: under the Cobb-Douglas input nest the quantity response to a
+  fuel price is mechanically unit-elastic, so these are lower-bound estimates. A CES energy nest
+  is the natural next step and would be a separate model, since it makes cost shares endogenous
+  in every sector rather than only the Leontief ones.
+
 * **`AntrasChor2018`** — global value chains (whitepaper §4.1, eqs. 34–42). Sourcing becomes
   use-specific: `π[o,d,j,k]` for sector-`j` goods bought by sector `k`, plus `π[o,d,j,C]` for
   final consumption, each with its own price index. Takes a `GVCBaseline`, which re-solves gross
