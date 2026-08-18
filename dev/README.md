@@ -145,6 +145,41 @@ dev/emerging/build/
 CSV parsing plus calibration. It is a Julia serialization, so it is **not portable across
 Julia versions or machines**; rebuild it with `04a_load.jl` rather than copying it.
 
+### Carbon accounts
+
+The EMERGING build carries a CO₂ satellite account, and `MahlkowWanner2023` computes the three
+footprints of the source paper's equations (16)–(18) from it — territorial, consumption and
+extraction. See [`emerging/README.md`](emerging/README.md) for the fossil taxonomy, the
+calibration and the results. The satellite is a MATLAB **v5** file, so it needs `MAT.jl` rather
+than the `rhdf5` path the rest of the pipeline uses; `emerging/05a_export_co2.jl` converts it to
+CSV in a throwaway environment so the package takes no dependency on it.
+
+Two extra files under `emerging/build/2023/` support this: `co2_by_sector.csv` (country ×
+burning industry, Mt CO₂) and the `country_map.csv` / `sector_map.csv` index files that translate
+EMERGING's row order into KITE labels.
+
+#### On the ICIO baseline
+
+The same machinery runs on the 81 × 50 ICIO baseline, with a satellite of CO₂ by country and
+ICIO industry as an `(N, J)` matrix — the layout the OECD's own embodied-CO₂ data uses:
+
+```julia
+b = load_baseline(year = 2022)
+m0 = MahlkowWanner2023(b; primary = ["B05", "B06"], secondary = Any["B05", "C19" => "B06"])
+χ  = emission_intensity_from_satellite(b, m0, co2)          # co2[d, k], country × industry
+m  = MahlkowWanner2023(b; primary = ["B05", "B06"], secondary = Any["B05", "C19" => "B06"],
+                       emission_intensity = χ)
+emissions(update_equilibrium(m, b, sc))
+```
+
+**It will be coarser than EMERGING, and the reason is the sector classification, not the code.**
+ICIO puts crude petroleum and natural gas in one sector (`B06`) and gas distribution inside
+electricity supply (`D`). So natural gas cannot be given its own Leontief link, gas burnt
+directly cannot be separated from oil, and the distributed-gas channel disappears — three of
+the model's mechanisms are simply not identified. EMERGING resolves `COAL`, `OIL`, `GAS`,
+`PETR`, `GASD` and `ELY` separately and loses none of them. If the question is about carbon,
+prefer the EMERGING baseline.
+
 ### Solver setting
 
 **Use `vfactor = 0.05`.** The package default of `0.2` is above the stability limit of the

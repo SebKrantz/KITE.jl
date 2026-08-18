@@ -46,7 +46,9 @@ export KiteModel, CaliendoParro2015, ChowdhryHinzKaminWanner2022, MahlkowWanner2
        AntrasChor2018, FelbermayrEtAl2025,
        KiteBaseline, GVCBaseline, RegionalBaseline, Scenario,
        KiteResult, RegionalResult, SolverSettings,
-       fossil_use, resource_price_change, calibrate_regional, labour_reallocation,
+       fossil_use, resource_price_change, emissions,
+       emission_intensity_from_fuel_co2, emission_intensity_from_satellite,
+       calibrate_regional, labour_reallocation,
        calibrate, residuals, baseline_from_long,
        load_baseline, read_baseline_csv, write_baseline,
        read_baseline_binary, write_baseline_binary,
@@ -76,6 +78,7 @@ include("use_specific.jl")
 include("model_cp2015.jl")
 include("model_chkw2022.jl")
 include("model_mw2023.jl")
+include("emissions.jl")
 include("model_ac2018.jl")
 include("model_regional.jl")
 include("results.jl")

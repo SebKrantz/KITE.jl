@@ -172,6 +172,72 @@ A non-converged run is not obviously wrong from its numbers alone. At `vfactor =
 US–China counterfactual returned a 5% welfare *gain* for Mongolia and a 6% loss for Qatar;
 at 0.05 those disappear. Always check `res.converged`.
 
+## Carbon accounts
+
+`05a_export_co2.jl` converts EMERGING's CO₂ satellite to CSV and `05_emissions.jl` runs the
+full Mahlkow–Wanner carbon accounting on top of the baseline.
+
+EMERGING is an unusually good match for that model, and a better one than OECD ICIO, because it
+resolves every fuel the model needs as its own sector. ICIO merges crude oil with natural gas
+(`B06`) and gas distribution with electricity generation (`D`); both collapses make the Leontief
+link from a refined fuel to *its own* primary fuel unidentifiable. Here the taxonomy states
+directly:
+
+```julia
+primary   = ["COAL", "OIL", "GAS"]                            # earn a resource rent
+secondary = ["COAL", "GAS", "PETR" => "OIL", "GASD" => "GAS"] # burnt; the pairs are Leontief
+```
+
+`COAL` and `GAS` are in `P ∩ S` — extracted *and* burnt as extracted. Coal alone is 47% of world
+combustion CO₂, so a model that cannot express that overlap cannot do carbon accounting at all.
+
+**The satellite is a MATLAB v5 file**, unlike the MRIO itself, so `rhdf5` cannot read it. That
+is why the conversion step runs in a throwaway environment with `MAT.jl` rather than taking a
+package dependency.
+
+### Results
+
+Intensities are calibrated from the satellite, so baseline territorial emissions reproduce it
+country by country. The world total is 32 501.5 Mt CO₂ for 2023, and all three footprints agree
+on it to 2 × 10⁻¹⁶:
+
+| region | production | consumption | extraction |
+|---|---:|---:|---:|
+| CHN | 10 805 | 8 984 | 7 211 |
+| USA | 4 241 | 4 798 | 4 708 |
+| IND | 2 658 | 2 517 | 989 |
+| RUS | 1 489 | 977 | 3 167 |
+| JPN | 891 | 1 152 | 25 |
+| SAU | 552 | 554 | 1 485 |
+
+The three diverge in exactly the ways the literature documents. China is the largest net
+exporter of embodied carbon (−1 821 Mt), the United States the largest net importer (+556);
+Russia and Saudi Arabia extract far more carbon than they burn; Japan burns forty times what it
+extracts.
+
+A direct check on the underlying data is reassuring: dividing the satellite's coal column by
+coal absorption gives **21.0 kg CO₂ per USD against a physical benchmark of ~24** — the
+satellite and the input-output table are measuring the same thing. The *fitted* split is looser
+than that (see the caveat below): country totals are exact, but many small regions have their
+intensity concentrated on one fuel, so per-fuel medians sit below physical carbon content.
+
+**US +25 pp tariff on China** (84 iterations, 29 s): world emissions fall 0.020%. The
+interesting number is the split — US territorial emissions *rise* 0.086% while its consumption
+footprint falls 3.3%, as it substitutes away from carbon-intensive Chinese supply. Vietnam
+(+0.35%), Russia (+0.20%) and Canada (+0.16%) pick it up.
+
+### Caveat on the fuel split
+
+`emission_intensity_from_satellite` uses the satellite's industry detail only, because the fuel
+labels of EMERGING's seven CO₂ columns are not stored in the `.mat` file. Country totals are
+therefore exact but the split across fuels is estimated, and the fit explains only part of the
+cross-industry variation — partly a genuine identification limit, partly because satellites book
+private motoring to a transport industry while the fuel was bought by households.
+
+Confirming the seven fuel labels against the EMERGING documentation would allow
+`emission_intensity_from_fuel_co2` instead, which needs no estimation at all. That is the single
+highest-value follow-up here.
+
 ## Known limitations
 
 - **Tariffs are 2019, the IO table is 2023.** MAcMap-HS6 has no later release. Levels are

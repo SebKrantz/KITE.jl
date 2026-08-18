@@ -12,9 +12,33 @@ paper.
   complementary primary fuel with the rest of their input bundle in **Leontief** rather than
   Cobb-Douglas fashion, so fuel cost shares move with relative prices instead of being pinned by
   a fixed exponent — which is what lets fuel use, and hence emissions, respond to trade shocks.
-  `fossil_use` reports real secondary-fuel use; `resource_price_change` the rental prices.
+  `fossil_use` reports real fuel use; `resource_price_change` the rental prices.
   Unlike the whitepaper, tariffs and export subsidies are supported, so the model reduces
   exactly to `CaliendoParro2015` when no fossil sectors are designated.
+
+  **Carbon accounting** (`emissions`) implements the source paper's §3.5, equations (16)–(18),
+  which the whitepaper does not reproduce: territorial emissions, the consumption footprint, and
+  the extraction footprint of Kortum & Weisbach. All three sum to the same world total, which
+  the tests assert. The consumption footprint needs the global Leontief inverse; it is never
+  formed — at 196 × 133 that would be a 26 068² dense factorisation — but obtained from a single
+  transposed solve that converges at the input-output spectral radius.
+
+  Two changes were needed to make this possible:
+
+  - **Primary and secondary fossil sectors may now overlap**, as they do in the paper: coal and
+    natural gas are extracted *and* burnt as extracted, and a sector in `P ∩ S` is primary and
+    burnt but never Leontief. `secondary` accordingly accepts a bare sector code as well as a
+    `"secondary" => "primary"` pair. The previous constructor rejected the overlap, which left
+    coal — 47% of world combustion CO₂ — out of `fossil_use` entirely.
+  - `fossil_use` is now **net of fuel that is transformed rather than burnt**, the correction in
+    equation (16), so a fuel feeding a distribution or refining sector is not counted twice.
+
+  Intensities are the paper's `ι^s`, called `χ` here because the whitepaper already uses `ι` for
+  the trade balance as a share of world income (its eq. 33). `emission_intensity_from_fuel_co2`
+  calibrates them from a satellite that reports CO₂ by fuel (EMERGING's layout, exact);
+  `emission_intensity_from_satellite` from one that reports CO₂ by industry (OECD TeCO2's
+  layout, fitted). Both make baseline territorial emissions reproduce the satellite's country
+  totals.
 
 * **`AntrasChor2018`** — global value chains (whitepaper §4.1, eqs. 34–42). Sourcing becomes
   use-specific: `π[o,d,j,k]` for sector-`j` goods bought by sector `k`, plus `π[o,d,j,C]` for
