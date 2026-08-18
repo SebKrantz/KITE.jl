@@ -58,17 +58,32 @@ struct _Workspace{E}
     ext::E
 end
 
+"""
+    _refresh_wedges!(φ̂, W, b, sc)
+
+Rebuild the two loop-invariants that depend on the policy wedges,
+`φ̂ = (τ′/τ)·κ̂·(ζ′/ζ)` and `W = π·φ̂^(-θ)`.
+
+Normally this runs once per solve. It has to run once per *outer iteration* when a specific
+carbon price is in force, because that wedge is `1 + price·χ/P̂` and so moves with the fuel
+price. The cost is one `O(N²J)` pass, the same order as the price-index step it feeds.
+"""
+function _refresh_wedges!(φ̂::AbstractArray{Float64,3}, W::AbstractArray{Float64,3},
+                          b::KiteBaseline, sc::Scenario)
+    @inbounds @. φ̂ = (sc.τ′ / b.τ) * sc.κ̂ * (sc.ζ′ / b.ζ)
+    @inbounds for j in axes(W, 3)
+        θj = b.θ[j]
+        @views @. W[:, :, j] = b.π[:, :, j] * φ̂[:, :, j]^(-θj)
+    end
+    return W
+end
+
 function _Workspace(b::KiteBaseline, sc::Scenario, ext = nothing)
     N, J = b.N, b.J
 
     φ̂ = similar(b.π)
-    @inbounds @. φ̂ = (sc.τ′ / b.τ) * sc.κ̂ * (sc.ζ′ / b.ζ)
-
     W = similar(b.π)
-    @inbounds for j in 1:J
-        θj = b.θ[j]
-        @views @. W[:, :, j] = b.π[:, :, j] * φ̂[:, :, j]^(-θj)
-    end
+    _refresh_wedges!(φ̂, W, b, sc)
 
     has_export_subsidy = any(!=(1.0), sc.ζ′)
     Aζ = has_export_subsidy ? similar(b.π) : Array{Float64,3}(undef, 0, 0, 0)

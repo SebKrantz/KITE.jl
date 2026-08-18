@@ -232,13 +232,28 @@ mutable struct Scenario
     ẑ::Matrix{Float64}
     L̂::Vector{Float64}
     coalition::Vector{Bool}
+    # Carbon price, as tax per baseline unit-value of fuel — see `set_carbon_price!`. Held apart
+    # from τ′ because a price per tonne is a *specific* tax: its ad-valorem equivalent depends on
+    # the counterfactual fuel price and so has to be revised as the solver goes.
+    carbon::Matrix{Float64}
+    carbon_specific::Bool
     label::String
 end
 
 function Scenario(b::KiteBaseline; label::AbstractString = "scenario")
     return Scenario(copy(b.τ), copy(b.ζ), ones(b.N, b.N, b.J), ones(b.N, b.J),
-                    ones(b.N), falses(b.N), String(label))
+                    ones(b.N), falses(b.N), zeros(b.N, b.J), false, String(label))
 end
+
+"""
+    _copy_scenario(sc) -> Scenario
+
+A deep copy, so that a solve which revises the policy wedges as it goes — a specific carbon
+price — cannot leave the caller's scenario mutated.
+"""
+_copy_scenario(sc::Scenario) =
+    Scenario(copy(sc.τ′), copy(sc.ζ′), copy(sc.κ̂), copy(sc.ẑ), copy(sc.L̂),
+             copy(sc.coalition), copy(sc.carbon), sc.carbon_specific, sc.label)
 
 function Base.show(io::IO, sc::Scenario)
     print(io, "Scenario(\"", sc.label, "\")")

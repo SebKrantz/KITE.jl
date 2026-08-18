@@ -18,6 +18,24 @@
 # exactly what the calibration returns, so the two conventions agree by construction. It does
 # mean χ is country-specific unless you supply a single global figure, because it absorbs
 # baseline price differences across countries.
+#
+# ---------------------------------------------------------------------------------------------
+# INDEX CONVENTION — read this before checking any line here against the paper.
+#
+# The paper writes π_{ni} for the share of country *n*'s expenditure sourced from *i*: buyer
+# first. KITE stores π[o, d, j] with the seller first — origin, destination, sector — because
+# that makes a fixed sector a contiguous N×N matrix. So
+#
+#     paper  π_{ni}^j   ==   code  π[i, n, j]          (the indices swap)
+#
+# Every transposition below follows from that one line, and it is the easiest thing in this file
+# to get wrong. Equation (18) in particular chains two of them: the burner's sourcing of the
+# fuel, and then the refiner's sourcing of the crude that made it.
+#
+# The aggregate identity Σ_n E_n = Σ_n CF_n = Σ_n EF_n is what catches a mistake — each sum
+# telescopes only if every share is contracted over the right index. The test suite asserts it,
+# and it did in fact catch a transposed multiplier during development.
+# ---------------------------------------------------------------------------------------------
 
 # ── the pieces both the baseline and the counterfactual need ──────────────────────────────
 
@@ -190,13 +208,18 @@ function _consumption_footprint(r::KiteResult{MahlkowWanner2023}, is′)
     v = _emission_multiplier(q, b.π, b.τ, b.ζ, b.input_share)
     v′ = _emission_multiplier(q′, r.π′, sc.τ′, sc.ζ′, is′)
 
+    # Start from the fuel each country burns itself — that never entered any production chain,
+    # so no multiplier applies to it — then add the emissions embodied in everything it buys.
     CF = copy(fin)
     CF′ = copy(fin′)
     @inbounds for j in 1:b.J, n in 1:b.N
-        base = b.α[n, j] * b.I[n]
+        base = b.α[n, j] * b.I[n]        # n's final demand for sector j, in purchaser prices
         new = b.α[n, j] * r.I′[n]
         s1 = 0.0; s2 = 0.0
         for o in 1:b.N
+            # π/(τζ) converts a dollar of n's spending into the dollar the producer o receives,
+            # which is the unit v is per. The wedge drops out of the chain because it is revenue,
+            # not a payment for goods, and reappears in income.
             s1 += v[o, j] * b.π[o, n, j] / (b.τ[o, n, j] * b.ζ[o, n, j])
             s2 += v′[o, j] * r.π′[o, n, j] / (sc.τ′[o, n, j] * sc.ζ′[o, n, j])
         end
@@ -246,38 +269,47 @@ function _extraction_footprint(r::KiteResult{MahlkowWanner2023})
     A, A′ = _fuel_absorption(r)
     EF = zeros(b.N)
     EF′ = zeros(b.N)
-    burnt_slot = Dict(s => i for (i, s) in enumerate(m.burnt))
     leo_of = Dict(t => i for (i, t) in enumerate(m.leontief))
 
     for (i, s) in enumerate(m.burnt)
         if haskey(leo_of, s)
-            # refined or distributed: trace through the producer's primary-fuel sourcing
+            # ---- fuel that was processed first: two hops back to the ground ----------------
+            # Paper: Σ_i π_{in}^{p^s} · ι^s · Σ_m π_{mi}^s X_m^s / P_m^s. Reading the inner sum
+            # first, it is the emissions from fuel s *produced by* i; the outer share then asks
+            # where i bought the crude. Emissions from Dutch-refined petroleum belong to whoever
+            # sold the Netherlands its oil, not to the Netherlands.
             qc = m.complement[leo_of[s]]
-            for o in 1:b.N                      # o produced the secondary fuel
+            for o in 1:b.N                      # o refined or distributed the fuel
                 e = 0.0; e′ = 0.0
-                for dd in 1:b.N                 # dd burnt it
+                for dd in 1:b.N                 # dd bought it from o and burnt it
+                    # π[o, dd, s] is dd's share sourced from o — the paper's π_{dd,o}^s
                     e += b.π[o, dd, s] * m.χ[dd, s] * A[dd, i]
                     e′ += r.π′[o, dd, s] * m.χ[dd, s] * A′[dd, i]
                 end
                 (e == 0 && e′ == 0) && continue
-                for n in 1:b.N                  # n extracted the primary fuel
+                for n in 1:b.N                  # n extracted the primary fuel o refined
+                    # π[n, o, qc] is o's share of the primary fuel sourced from n
                     EF[n] += b.π[n, o, qc] * e
                     EF′[n] += r.π′[n, o, qc] * e′
                 end
             end
         else
-            # burnt as extracted: trace by the burner's own sourcing of this fuel
-            for dd in 1:b.N
+            # ---- fuel burnt as extracted: one hop ------------------------------------------
+            # Paper: Σ_i π_{in}^p (X_i^p − transformed)/P_i^p. Coal is bought and burnt as it
+            # comes, so the burner's own sourcing shares say who dug it up.
+            for dd in 1:b.N                     # dd burnt it
                 e = m.χ[dd, s] * A[dd, i]
                 e′ = m.χ[dd, s] * A′[dd, i]
                 (e == 0 && e′ == 0) && continue
-                for n in 1:b.N
+                for n in 1:b.N                  # n extracted it
                     EF[n] += b.π[n, dd, s] * e
                     EF′[n] += r.π′[n, dd, s] * e′
                 end
             end
         end
     end
+    # Σ_n EF_n telescopes to global emissions because every sourcing share sums to one over its
+    # origin index — which is exactly what the aggregate identity in the tests checks.
     return EF, EF′
 end
 
@@ -500,13 +532,22 @@ function emission_intensity_from_satellite(b::KiteBaseline, m::MahlkowWanner2023
         (tot > 0 && sum(A[d, :]) > 0) || continue
         interm = vec(sum(Ud, dims = 2))             # intermediate absorption by fuel
 
-        # start from the uniform intensity that matches the country's industry total
+        # Fit x ≥ 0 minimising Σ_k (Σ_s x_s·U[s,k] − co2[k])² by multiplicative updates:
+        #
+        #     x_s  ←  x_s · (Σ_k U[s,k]·target[k]) / (Σ_k U[s,k]·predicted[k])
+        #
+        # The update is a ratio of two non-negative sums, so x can never go negative and the
+        # constraint needs no projection, no active set and no external solver — which matters
+        # because the alternative is a dependency for a problem with four unknowns. At the fixed
+        # point the two sums are equal, which is the first-order condition. The problem is tiny
+        # (|S| unknowns against J industries) and convergence is quick, but it is a local method
+        # on a weakly identified problem, hence the identification caveat in the docstring.
         x = fill(tot / max(sum(interm), eps()), ns)
         pred = Vector{Float64}(undef, b.J)
         num = Vector{Float64}(undef, ns)
         den = Vector{Float64}(undef, ns)
         for _ in 1:iterations
-            mul!(pred, transpose(Ud), x)
+            mul!(pred, transpose(Ud), x)                # predicted emissions by industry
             fill!(num, 0.0); fill!(den, 0.0)
             @inbounds for k in 1:b.J, i in 1:ns
                 u = Ud[i, k]
@@ -516,7 +557,7 @@ function emission_intensity_from_satellite(b::KiteBaseline, m::MahlkowWanner2023
             end
             converged = true
             @inbounds for i in 1:ns
-                den[i] <= 0 && continue
+                den[i] <= 0 && continue                 # this fuel is bought by no industry
                 f = num[i] / den[i]
                 abs(f - 1) > 1e-10 && (converged = false)
                 x[i] *= f
@@ -548,3 +589,79 @@ function emission_intensity_from_satellite(b::KiteBaseline, m::MahlkowWanner2023
     end
     return χ
 end
+
+# ── carbon pricing ────────────────────────────────────────────────────────────────────────
+
+"""
+    set_carbon_price!(sc, b, model, price; country = :all, sector = :all,
+                      basis = :specific, mode = :set)
+
+Price the carbon released when fossil fuel is burnt.
+
+A carbon price falls on a country's **absorption** of fuel, wherever the fuel came from, so it
+is an origin-neutral wedge — unlike a tariff, it applies to domestic supply too. That is exactly
+a `τ′` set uniformly across origins *including the diagonal*, which is how it is implemented:
+the existing machinery then collects the revenue on the whole domestic base and hands it back as
+income, and leaves sourcing shares undistorted because the wedge is common to every origin.
+
+`price` is money per unit of CO₂, in the units the model's emission intensity uses. With the
+EMERGING convention — value in USD million, emissions in Mt CO₂ — the intensity is numerically
+tonnes of CO₂ per dollar, so `price` is simply **USD per tonne of CO₂**.
+
+`basis`:
+
+- `:specific` (default) — a genuine price per tonne. Its ad-valorem equivalent is
+  `1 + price·χ/P̂`, which depends on the counterfactual fuel price, so the solver revises the
+  wedge as it iterates. This is what real carbon pricing is, and the distinction is not
+  second-order: at 100 USD/t a coal intensity of 0.021 t/USD is a 210% ad-valorem wedge, and the
+  fuel price moves a long way under it.
+- `:ad_valorem` — freeze the wedge at its baseline-price value, `1 + price·χ`. Cheaper, works
+  with any model rather than only [`MahlkowWanner2023`](@ref), and accurate for small prices.
+
+`mode` is `:set` or `:add`, the latter stacking on an existing carbon price.
+
+A border carbon adjustment is this plus an ordinary [`set_tariff!`](@ref) on the carbon-intensive
+imports: the domestic price is what the adjustment exists to protect, so both halves are needed
+for the counterfactual to be coherent.
+
+# Examples
+```julia
+sc = Scenario(b; label = "EU ETS at 100 USD/t")
+set_carbon_price!(sc, b, model, 100.0; country = eu_members)
+r = update_equilibrium(model, b, sc; vfactor = 0.05)
+emissions(r)
+```
+
+See also [`MahlkowWanner2023`](@ref), [`emissions`](@ref).
+"""
+function set_carbon_price!(sc::Scenario, b, model::MahlkowWanner2023, price::Real;
+                           country = :all, sector = :all, basis::Symbol = :specific,
+                           mode::Symbol = :set)
+    basis in (:specific, :ad_valorem) ||
+        error("basis must be :specific or :ad_valorem; got :$basis.")
+    mode in (:set, :add) || error("mode must be :set or :add; got :$mode.")
+    model.has_carbon ||
+        error("set_carbon_price!: the model carries no emission_intensity, so there is no " *
+              "carbon content to price. Pass `emission_intensity` to MahlkowWanner2023.")
+    price ≥ 0 || error("a carbon price must be non-negative; got $price.")
+
+    ds = _countries(b, country)
+    js = intersect(_sectors(b, sector), model.burnt)
+    isempty(js) && @warn "set_carbon_price!: no burnt fuel matches `sector`, so nothing is priced."
+
+    for j in js, d in ds
+        w = price * model.χ[d, j]
+        sc.carbon[d, j] = mode === :set ? w : sc.carbon[d, j] + w
+    end
+    if basis === :specific
+        sc.carbon_specific = true
+    else
+        # freeze at baseline prices: the wedge never moves again
+        for j in js, d in ds
+            @views @. sc.τ′[:, d, j] = b.τ[:, d, j] * (1 + sc.carbon[d, j])
+        end
+        sc.carbon[ds, js] .= 0.0
+    end
+    return sc
+end
+

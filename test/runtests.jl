@@ -634,6 +634,78 @@ const FIXTURE = joinpath(@__DIR__, "fixtures", "toy_3x2")
             @test χ2[:, s1i] ./ χ2[:, s3i] ≈ mc.χ[:, s1i] ./ mc.χ[:, s3i] rtol = 2e-2
         end
 
+        @testset "carbon pricing" begin
+            i1 = mc.burnt[1]
+            S = (TIGHT..., vfactor = 0.15, max_iterations = 20_000)
+
+            @testset "a zero price is a no-change scenario" begin
+                sc0 = Scenario(bc); set_carbon_price!(sc0, bc, mc, 0.0)
+                r = update_equilibrium(mc, bc, sc0; S...)
+                @test r.iterations == 1
+                @test r.ŵ ≈ ones(bc.N) atol = 1e-12
+            end
+
+            @testset "the wedge is origin-neutral and includes the domestic base" begin
+                sca = Scenario(bc)
+                set_carbon_price!(sca, bc, mc, 0.1; country = "c1", basis = :ad_valorem)
+                # every origin faces the same wedge, the diagonal included — that is what makes
+                # it a tax on absorption rather than a tariff
+                @test all(≈(1 + 0.1 * mc.χ[1, i1]), sca.τ′[:, 1, i1] ./ bc.τ[:, 1, i1])
+                @test sca.τ′[1, 1, i1] > bc.τ[1, 1, i1]
+                @test sca.τ′[:, 2, i1] == bc.τ[:, 2, i1]      # other countries untouched
+                # and it therefore leaves sourcing far less distorted than a tariff of the size
+                ra = update_equilibrium(mc, bc, sca; S...)
+                sct = Scenario(bc)
+                set_tariff!(sct, bc, 1 + 0.1 * mc.χ[1, i1]; to = "c1", sector = "s1")
+                sct.τ′[1, 1, i1] = bc.τ[1, 1, i1]             # exempt home: an ordinary tariff
+                rt = update_equilibrium(mc, bc, sct; S...)
+                dev(r) = maximum(abs, r.π′[:, 1, i1] ./ bc.π[:, 1, i1] .- 1)
+                @test dev(ra) < 0.2 * dev(rt)
+                # revenue is collected on the domestic base too, so it is larger
+                @test tariff_revenue(ra)[2][1] > tariff_revenue(rt)[2][1]
+            end
+
+            @testset "a specific price solves τ′ = 1 + p·χ/P̂" begin
+                p = 0.3
+                scs = Scenario(bc)
+                set_carbon_price!(scs, bc, mc, p; country = "c1", basis = :specific)
+                before = copy(scs.τ′)
+                r = update_equilibrium(mc, bc, scs; S...)
+                @test r.converged
+                @test scs.τ′ == before                        # caller's scenario untouched
+                for s in mc.burnt
+                    @test r.scenario.τ′[1, 1, s] ≈
+                          bc.τ[1, 1, s] * (1 + p * mc.χ[1, s] / r.P̂[1, s]) rtol = 1e-8
+                end
+                # the ad-valorem shortcut overstates the wedge, because the fuel price rises
+                sca = Scenario(bc)
+                set_carbon_price!(sca, bc, mc, p; country = "c1", basis = :ad_valorem)
+                ra = update_equilibrium(mc, bc, sca; S...)
+                @test sca.τ′[1, 1, i1] > r.scenario.τ′[1, 1, i1]
+                @test sum(emissions(ra).production_new) < sum(emissions(r).production_new)
+            end
+
+            @testset "pricing carbon lowers emissions and raises fuel prices" begin
+                scs = Scenario(bc)
+                set_carbon_price!(scs, bc, mc, 0.2; country = "c1")
+                r = update_equilibrium(mc, bc, scs; S...)
+                e = emissions(r)
+                @test e.production_new[1] < e.production[1]          # the pricing country cuts
+                @test sum(e.production_new) < sum(e.production)      # and so does the world
+                @test r.P̂[1, i1] > 1
+                @test fossil_use(r).use_change[1] < 1
+            end
+
+            @testset "carbon-price errors" begin
+                sc0 = Scenario(bc)
+                @test_throws ErrorException set_carbon_price!(sc0, bc, mc, -1.0)
+                @test_throws ErrorException set_carbon_price!(sc0, bc, mc, 1.0; basis = :nope)
+                @test_throws ErrorException set_carbon_price!(sc0, bc, mc, 1.0; mode = :nope)
+                plain = MahlkowWanner2023(bc; primary = ["s1"], secondary = Any["s1"])
+                @test_throws ErrorException set_carbon_price!(sc0, bc, plain, 1.0)
+            end
+        end
+
         @testset "carbon accounts require an intensity" begin
             plain = MahlkowWanner2023(bc; primary = ["s1"], secondary = Any["s1"])
             @test !plain.has_carbon
