@@ -522,10 +522,139 @@ const FIXTURE = joinpath(@__DIR__, "fixtures", "toy_3x2")
             @test sum(fu.use_new) < sum(fu.use)
         end
 
+        # ---- carbon accounting, the paper's §3.5 equations (16)-(18) ----------------------
+        # The natural-gas arrangement of the paper, which the old constructor could not express:
+        # s1 is extracted, burnt as extracted (P ∩ S), *and* feeds s3, the distribution sector
+        # whose own output is burnt in turn (S \ P). s2 is extracted but never burnt, like crude
+        # oil. Gas going into distribution must not be counted twice, which is the correction in
+        # equation (16).
+        bc = toy_baseline(N = 4, J = 5, seed = 1)
+        χ_dict = Dict("s1" => 2.0, "s3" => 1.0)
+        mc = MahlkowWanner2023(bc; primary = ["s1", "s2"],
+                               secondary = Any["s1", "s3" => "s1"],
+                               resource_share = 0.5, emission_intensity = χ_dict)
+        scc = Scenario(bc); set_tariff!(scc, bc, 1.4; from = "c1", to = "c2")
+
+        @testset "primary ∩ secondary" begin
+            @test mc.burnt_codes == ["s1", "s3"]
+            @test mc.leontief_codes == ["s3"]        # s1 is burnt as extracted, no fuel nest
+            @test mc.primary_codes == ["s1", "s2"]
+            r = update_equilibrium(mc, bc; TIGHT...)
+            fu = fossil_use(r)
+            @test sort(unique(fu.sector)) == ["s1", "s3"]   # the P ∩ S fuel is not invisible
+            @test nrow(fu) == 2 * bc.N
+            @test all(≈(1.0), fu.use_change)
+
+            i1 = findfirst(==("s1"), bc.sectors); i3 = findfirst(==("s3"), bc.sectors)
+            u1 = fu[fu.sector .== "s1", :use]; u3 = fu[fu.sector .== "s3", :use]
+            # s1 is counted net of the part s3 transforms rather than burns ...
+            @test all(u1 .< bc.X[:, i1])
+            @test u1 ≈ bc.X[:, i1] .- bc.input_share[:, i1, i3] .* bc.Y[:, i3] rtol = 1e-12
+            # ... while nothing transforms s3, so it is absorbed in full
+            @test u3 ≈ bc.X[:, i3] rtol = 1e-12
+        end
+
+        @testset "the three footprints agree in aggregate" begin
+            for (label, res) in ("no-change" => update_equilibrium(mc, bc; TIGHT...),
+                                 "tariff" => update_equilibrium(mc, bc, scc; TIGHT...))
+                e = emissions(res)
+                @test nrow(e) == bc.N
+                for (a, c) in ((:production, :consumption), (:production, :extraction))
+                    @test sum(e[!, a]) ≈ sum(e[!, c]) rtol = 1e-9
+                    @test sum(e[!, Symbol(a, :_new)]) ≈ sum(e[!, Symbol(c, :_new)]) rtol = 1e-9
+                end
+                @test all(≥(0), e.production)
+                @test all(≥(0), e.consumption_new)
+                # but they differ country by country — that is the entire point of having three
+                label == "tariff" && @test !isapprox(e.production, e.consumption; rtol = 1e-3)
+            end
+        end
+
+        @testset "no-change scenario leaves the carbon accounts alone" begin
+            r = update_equilibrium(mc, bc; TIGHT...)
+            e = emissions(r)
+            @test e.production ≈ e.production_new rtol = 1e-10
+            @test e.consumption ≈ e.consumption_new rtol = 1e-10
+            @test e.extraction ≈ e.extraction_new rtol = 1e-10
+        end
+
+        @testset "sector and fuel levels reconcile with the country level" begin
+            r = update_equilibrium(mc, bc, scc; TIGHT...)
+            ec = emissions(r); es = emissions(r; level = :sector)
+            ef = emissions(r; level = :fuel)
+            # q ⊙ Y summed over sectors, plus the households row, is equation (16)
+            gs = combine(groupby(es, :country), :production => sum => :p,
+                         :production_new => sum => :pn)
+            j = innerjoin(gs, ec[!, [:country, :production, :production_new]], on = :country)
+            @test j.p ≈ j.production rtol = 1e-9
+            @test j.pn ≈ j.production_new rtol = 1e-9
+            # so is the fuel split
+            gf = combine(groupby(ef, :country), :production_new => sum => :pn)
+            j2 = innerjoin(gf, ec[!, [:country, :production_new]], on = :country)
+            @test j2.pn ≈ j2.production_new rtol = 1e-9
+            @test nrow(es) == bc.N * (bc.J + 1)      # every sector plus households
+            @test "households" in es.sector
+        end
+
+        @testset "intensity calibration round-trips" begin
+            r0 = update_equilibrium(mc, bc; TIGHT...)
+            # by fuel: dividing emissions back by absorption must return the intensity used
+            ef = emissions(r0; level = :fuel)
+            co2 = zeros(bc.N, length(mc.burnt))
+            for (i, s) in enumerate(mc.burnt_codes)
+                co2[:, i] = ef[ef.sector .== s, :production]
+            end
+            χ1 = emission_intensity_from_fuel_co2(bc, mc, co2; verbose = 0)
+            for (i, s) in enumerate(mc.burnt)
+                @test all(≈(mc.χ[1, s]), χ1[:, s])
+            end
+
+            # by industry: fit the fuel split from which industries burn what
+            es = emissions(r0; level = :sector)
+            Z = zeros(bc.N, bc.J)
+            for row in eachrow(es[es.sector .!= "households", :])
+                Z[findfirst(==(row.country), bc.countries),
+                  findfirst(==(row.sector), bc.sectors)] = row.production
+            end
+            # The industry route promises two distinct things, and they are worth testing
+            # separately. First the *level*: whatever the fuel split, feeding the fitted
+            # intensity back through the model must reproduce the satellite's country totals.
+            χ2 = emission_intensity_from_satellite(bc, mc, Z; verbose = 0)
+            m2 = MahlkowWanner2023(bc; primary = ["s1", "s2"],
+                                   secondary = Any["s1", "s3" => "s1"],
+                                   resource_share = 0.5, emission_intensity = χ2)
+            e2 = emissions(update_equilibrium(m2, bc; TIGHT...))
+            @test e2.production ≈ vec(sum(Z, dims = 2)) rtol = 1e-9
+
+            # Second the *shape*: relative intensities across fuels, which is all the industry
+            # pattern can identify. It is only as sharp as industries differ in their fuel mix,
+            # and four industries against two fuels is near that limit — on 133 EMERGING
+            # industries, with coal concentrated in power and steel, it is far better.
+            s1i, s3i = mc.burnt[1], mc.burnt[2]
+            @test χ2[:, s1i] ./ χ2[:, s3i] ≈ mc.χ[:, s1i] ./ mc.χ[:, s3i] rtol = 2e-2
+        end
+
+        @testset "carbon accounts require an intensity" begin
+            plain = MahlkowWanner2023(bc; primary = ["s1"], secondary = Any["s1"])
+            @test !plain.has_carbon
+            r = update_equilibrium(plain, bc; TIGHT...)
+            @test_throws ErrorException emissions(r)
+            @test_throws ErrorException emissions(update_equilibrium(mc, bc; TIGHT...);
+                                                  level = :nonsense)
+        end
+
         @testset "configuration errors" begin
             @test_throws ErrorException MahlkowWanner2023(b; primary = ["nope"])
             @test_throws ErrorException MahlkowWanner2023(b; primary = ["s1"],
                                                           secondary = ["s1" => "s1"])
+            # a complementary fuel that is not itself primary
+            @test_throws ErrorException MahlkowWanner2023(b; primary = ["s1"],
+                                                          secondary = ["s3" => "s2"])
+            @test_throws ErrorException MahlkowWanner2023(b; primary = ["s1"],
+                                                          secondary = Any["s2", "s2"])
+            @test_throws ErrorException MahlkowWanner2023(b; primary = ["s1"],
+                                                          secondary = Any["s2"],
+                                                          emission_intensity = Dict("nope" => 1))
             @test_throws ErrorException MahlkowWanner2023(b; primary = ["s1"],
                                                           resource_share = 1.5)
             @test_throws ErrorException MahlkowWanner2023(b; primary = ["s1", "s1"])
