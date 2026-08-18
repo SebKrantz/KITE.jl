@@ -648,7 +648,8 @@ country-level constructor. The `coalition` field is unused by this model.
 """
 Scenario(rb::RegionalBaseline; label::AbstractString = "scenario") =
     Scenario(copy(rb.τ), copy(rb.ζ_trade), ones(rb.N, rb.N, rb.J), ones(rb.N, rb.J),
-             ones(rb.N), falses(rb.N), zeros(rb.N, rb.J), false, String(label))
+             ones(rb.N), falses(rb.N), zeros(rb.N, rb.J), ones(rb.N, rb.J), false,
+             String(label))
 
 _countries(rb::RegionalBaseline, sel) = _resolve(sel, rb.region_index, rb.N, "region")
 _sectors(rb::RegionalBaseline, sel) = _resolve(sel, rb.sector_index, rb.J, "sector")

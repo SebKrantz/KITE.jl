@@ -690,7 +690,7 @@ const FIXTURE = joinpath(@__DIR__, "fixtures", "toy_3x2")
                 @test tariff_revenue(ra)[2][1] > tariff_revenue(rt)[2][1]
             end
 
-            @testset "a specific price solves τ′ = 1 + p·χ/P̂" begin
+            @testset "a specific price solves f = 1 + p·χ/P̂ᵖʳᵉ" begin
                 p = 0.3
                 scs = Scenario(bc)
                 set_carbon_price!(scs, bc, mc, p; country = "c1", basis = :specific)
@@ -699,8 +699,13 @@ const FIXTURE = joinpath(@__DIR__, "fixtures", "toy_3x2")
                 @test r.converged
                 @test scs.τ′ == before                        # caller's scenario untouched
                 for s in mc.burnt
-                    @test r.scenario.τ′[1, 1, s] ≈
-                          bc.τ[1, 1, s] * (1 + p * mc.χ[1, s] / r.P̂[1, s]) rtol = 1e-8
+                    f = r.scenario.carbon_applied[1, s]
+                    @test r.scenario.τ′[1, 1, s] ≈ bc.τ[1, 1, s] * f rtol = 1e-8
+                    # the wedge is set on the price NET of itself, P̂/f — which is the base that
+                    # makes the tax collect p per tonne rather than p/f
+                    @test f ≈ 1 + p * mc.χ[1, s] * f / r.P̂[1, s] rtol = 1e-8
+                    # equivalently: the tax per baseline dollar of fuel, (f−1)·P̂ᵖʳᵉ, is p·χ
+                    @test (f - 1) * r.P̂[1, s] / f ≈ p * mc.χ[1, s] rtol = 1e-8
                 end
                 # the ad-valorem shortcut overstates the wedge, because the fuel price rises
                 sca = Scenario(bc)
@@ -708,6 +713,70 @@ const FIXTURE = joinpath(@__DIR__, "fixtures", "toy_3x2")
                 ra = update_equilibrium(mc, bc, sca; S...)
                 @test sca.τ′[1, 1, i1] > r.scenario.τ′[1, 1, i1]
                 @test sum(emissions(ra).production_new) < sum(emissions(r).production_new)
+            end
+
+            @testset "the price collects p per tonne, not p/f" begin
+                # The whole point of revising the wedge: revenue divided by emissions must be
+                # the price the caller asked for. Under the tax-inclusive base it comes out at
+                # p/f, which at these prices is a third short and looks perfectly convergent.
+                p = 0.5
+                scp = Scenario(bc)
+                set_carbon_price!(scp, bc, mc, p; country = "c1")
+                rp = update_equilibrium(mc, bc, scp; S...)
+                @test rp.converged
+                fu = rp |> fossil_use
+                for s in mc.burnt
+                    f = rp.scenario.carbon_applied[1, s]
+                    f == 1 && continue
+                    code = bc.sectors[s]
+                    rev = (1 - 1 / f) * rp.X′[1, s]     # tax-inclusive rate on the fuel bill
+                    row = only(r for r in eachrow(fu) if r.country == "c1" && r.sector == code)
+                    emitted = mc.χ[1, s] * row.use_new
+                    if s in mc.complement
+                        # s3 is distilled out of s1, so part of c1's purchase of s1 is taxed
+                        # here AND again when the s3 made from it is burnt. The wedge cannot
+                        # tell the two buyers apart, so the chain carries more than p — see
+                        # the cascade note in `set_carbon_price!`.
+                        @test rev / emitted > p
+                    else
+                        @test rev / emitted ≈ p rtol = 1e-6
+                    end
+                end
+            end
+
+            @testset "a carbon price composes with a tariff on the same fuel" begin
+                # A border carbon adjustment is a tariff AND a carbon price on the same cell.
+                # Rewriting τ′ from the baseline would silently delete the tariff.
+                p, t = 0.2, 0.15
+                scb = Scenario(bc)
+                set_tariff!(scb, bc, t; from = "c2", to = "c1", sector = "s1", mode = :add)
+                tariffed = copy(scb.τ′)
+                set_carbon_price!(scb, bc, mc, p; country = "c1")
+                rb = update_equilibrium(mc, bc, scb; S...)
+                @test rb.converged
+                s1 = bc.sector_index["s1"]
+                f = rb.scenario.carbon_applied[1, s1]
+                @test f > 1
+                # the import cell carries both wedges, the domestic cell only the carbon one
+                @test rb.scenario.τ′[2, 1, s1] ≈ tariffed[2, 1, s1] * f rtol = 1e-10
+                @test rb.scenario.τ′[1, 1, s1] ≈ bc.τ[1, 1, s1] * f rtol = 1e-10
+                @test tariffed[2, 1, s1] > bc.τ[2, 1, s1]      # the tariff really was there
+                # and the same holds for the frozen basis, applied after the tariff
+                scv = Scenario(bc)
+                set_tariff!(scv, bc, t; from = "c2", to = "c1", sector = "s1", mode = :add)
+                set_carbon_price!(scv, bc, mc, p; country = "c1", basis = :ad_valorem)
+                @test scv.τ′[2, 1, s1] ≈ tariffed[2, 1, s1] * (1 + p * mc.χ[1, s1]) rtol = 1e-10
+            end
+
+            @testset "re-setting a frozen price replaces it rather than compounding" begin
+                scr = Scenario(bc)
+                set_carbon_price!(scr, bc, mc, 0.1; country = "c1", basis = :ad_valorem)
+                once = copy(scr.τ′)
+                set_carbon_price!(scr, bc, mc, 0.1; country = "c1", basis = :ad_valorem)
+                @test scr.τ′ ≈ once rtol = 1e-14
+                set_carbon_price!(scr, bc, mc, 0.1; country = "c1", basis = :ad_valorem,
+                                  mode = :add)
+                @test scr.τ′[1, 1, i1] > once[1, 1, i1]         # :add does stack
             end
 
             @testset "pricing carbon lowers emissions and raises fuel prices" begin

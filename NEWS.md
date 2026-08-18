@@ -50,12 +50,19 @@ paper.
   wedge is common to every origin. A border adjustment is this plus an ordinary `set_tariff!`.
 
   `basis = :specific` (the default) is a genuine price per tonne. Its ad-valorem equivalent is
-  `1 + price·χ/P̂`, so the solver revises the wedge each outer iteration and `Scenario` carries
+  `1 + price·χ/P̂ᵖʳᵉ`, on the fuel price *net of the tax* — the base that makes revenue equal
+  `price × emissions` — so the solver revises the wedge each outer iteration and `Scenario` carries
   the price alongside `τ′`; `update_equilibrium` works on a copy, and the returned result's
   scenario records the ad-valorem rate the price worked out to in equilibrium. The distinction
   is not cosmetic — on the test fixture a small price differs from the `:ad_valorem` shortcut by
   4% in its emission effect and a large one by 30%, because the fuel price itself moves a long
   way. `basis = :ad_valorem` freezes the wedge at baseline prices and works with any model.
+
+  The wedge composes multiplicatively with anything already on the cell, so a border carbon
+  adjustment — a carbon price *and* a tariff on the same fuel — works in either order. Where a
+  burnt fuel is also transformed by a Leontief secondary sector (gas into distribution), the
+  transformed share is taxed twice and that chain carries more than the stated price; the
+  docstring says which fuels this can touch and why no destination-uniform wedge can avoid it.
 
   Note what the answer rests on: under the Cobb-Douglas input nest the quantity response to a
   fuel price is mechanically unit-elastic, so these are lower-bound estimates. A CES energy nest

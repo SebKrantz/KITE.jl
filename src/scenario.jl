@@ -174,19 +174,43 @@ function set_coalition!(sc::Scenario, b, countries)
 end
 
 """
-    _apply_carbon_wedge!(sc, b, P̂)
+    _apply_carbon_wedge!(sc, P̂; inclusive = true)
 
-Refresh `τ′` for a specific carbon price, `τ′ = τ · (1 + price·χ / P̂)`. Called once per outer
-iteration; a no-op when no specific price is set. `P̂` is the current sectoral price-index change,
-so at the baseline (`P̂ = 1`) this coincides with the `:ad_valorem` basis.
+Revise `τ′` for the carbon price held in `sc.carbon`, to the ad-valorem factor
+
+    f = 1 + price·χ / P̂ᵖʳᵉ
+
+where `P̂ᵖʳᵉ` is the fuel's price index **net of the carbon wedge itself**. Called once per
+outer iteration for a `:specific` price, once at scenario-build time for an `:ad_valorem` one.
+
+Two details carry the economics, and both are easy to get wrong.
+
+**The wedge is applied multiplicatively, not by rewriting `τ′` from `b.τ`.** `carbon_applied`
+records the factor already in `τ′`, so the update is `τ′ *= f_new / f_old` and a tariff sitting
+on the same `(destination, fuel)` cell survives. Rewriting from the baseline would silently
+delete it — and a border carbon adjustment *is* a tariff and a carbon price on the same fuel.
+
+**The base is the price net of the tax.** A price per tonne must collect `price × emissions`.
+Emissions are `χ·X/P̂` with `P̂` the purchaser price index, and the revenue the tariff machinery
+collects on a wedge `f` is `(1 − 1/f)·X`; equating the two gives `f = 1 + price·χ/P̂ᵖʳᵉ`, not
+`1 + price·χ/P̂`. Using the tax-inclusive index instead would price carbon at `price/f` — a
+third short at `f = 1.5` — while looking perfectly convergent. Because the wedge is common to
+every origin it factors straight out of the CES price index, so `P̂ᵖʳᵉ = P̂ / f_old` exactly, and
+no separate pre-tax price index has to be carried.
+
+Pass `inclusive = false` when `P̂` is already net of the wedge (at baseline prices, where it is
+one by definition).
 """
-function _apply_carbon_wedge!(sc::Scenario, b, P̂::AbstractMatrix)
-    sc.carbon_specific || return sc
+function _apply_carbon_wedge!(sc::Scenario, P̂::AbstractMatrix; inclusive::Bool = true)
     @inbounds for j in axes(sc.carbon, 2), d in axes(sc.carbon, 1)
         w = sc.carbon[d, j]
-        w == 0 && continue
-        f = 1 + w / P̂[d, j]
-        @views @. sc.τ′[:, d, j] = b.τ[:, d, j] * f
+        a = sc.carbon_applied[d, j]
+        (w == 0 && a == 1) && continue
+        pre = inclusive ? P̂[d, j] / a : P̂[d, j]
+        f = 1 + w / pre
+        f == a && continue
+        @views @. sc.τ′[:, d, j] *= f / a
+        sc.carbon_applied[d, j] = f
     end
     return sc
 end
