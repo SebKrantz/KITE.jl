@@ -611,10 +611,10 @@ tonnes of CO₂ per dollar, so `price` is simply **USD per tonne of CO₂**.
 `basis`:
 
 - `:specific` (default) — a genuine price per tonne. Its ad-valorem equivalent is
-  `1 + price·χ/P̂`, which depends on the counterfactual fuel price, so the solver revises the
-  wedge as it iterates. This is what real carbon pricing is, and the distinction is not
-  second-order: at 100 USD/t a coal intensity of 0.021 t/USD is a 210% ad-valorem wedge, and the
-  fuel price moves a long way under it.
+  `1 + price·χ/P̂ᵖʳᵉ`, where `P̂ᵖʳᵉ` is the fuel price *net of the tax itself*, so the solver
+  revises the wedge as it iterates. This is what real carbon pricing is, and the distinction is
+  not second-order: at 100 USD/t a coal intensity of 0.021 t/USD is a 210% ad-valorem wedge, and
+  the fuel price moves a long way under it.
 - `:ad_valorem` — freeze the wedge at its baseline-price value, `1 + price·χ`. Cheaper, works
   with any model rather than only [`MahlkowWanner2023`](@ref), and accurate for small prices.
 
@@ -622,7 +622,23 @@ tonnes of CO₂ per dollar, so `price` is simply **USD per tonne of CO₂**.
 
 A border carbon adjustment is this plus an ordinary [`set_tariff!`](@ref) on the carbon-intensive
 imports: the domestic price is what the adjustment exists to protect, so both halves are needed
-for the counterfactual to be coherent.
+for the counterfactual to be coherent. The two compose — the carbon wedge multiplies onto
+whatever `τ′` already holds — so the order they are applied in does not matter.
+
+# One limit worth knowing
+
+The wedge is indexed by `(origin, destination, fuel)`. It cannot tell one *buyer* apart from
+another within the destination, so where a burnt fuel is also the complementary input of a
+Leontief secondary sector — natural gas bought by gas distribution, `"GASD" => "GAS"` — the
+part that is transformed rather than burnt is taxed here **and** again when the distributed
+product is absorbed. That chain therefore carries more than `price` per tonne.
+
+Real schemes exempt the transformation input for exactly this reason, and no destination-uniform
+wedge can reproduce that. It affects only fuels appearing both in `secondary` and as another
+entry's complement — on the EMERGING taxonomy that is natural gas alone, coal and refined
+petroleum feeding no further transformation. Scaling the wedge down by the combusted share was
+considered and rejected: it would under-price the directly-burnt majority to compensate for the
+transformed minority, trading a visible bias for a hidden one.
 
 # Examples
 ```julia
@@ -656,11 +672,10 @@ function set_carbon_price!(sc::Scenario, b, model::MahlkowWanner2023, price::Rea
     if basis === :specific
         sc.carbon_specific = true
     else
-        # freeze at baseline prices: the wedge never moves again
-        for j in js, d in ds
-            @views @. sc.τ′[:, d, j] = b.τ[:, d, j] * (1 + sc.carbon[d, j])
-        end
-        sc.carbon[ds, js] .= 0.0
+        # Freeze at baseline prices: evaluate the wedge once, here, and never again. It still
+        # goes through `_apply_carbon_wedge!` so that it composes with any tariff on the same
+        # cell and so that re-setting the price replaces rather than compounds it.
+        _apply_carbon_wedge!(sc, ones(size(sc.carbon)); inclusive = false)
     end
     return sc
 end

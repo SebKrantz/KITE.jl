@@ -236,13 +236,19 @@ mutable struct Scenario
     # from τ′ because a price per tonne is a *specific* tax: its ad-valorem equivalent depends on
     # the counterfactual fuel price and so has to be revised as the solver goes.
     carbon::Matrix{Float64}
+    # The ad-valorem factor currently multiplied into `τ′` on account of that price, 1 where
+    # none is. Kept so the wedge can be revised *multiplicatively* — `τ′ *= f_new/f_old` — and
+    # therefore composes with a tariff on the same cell instead of overwriting it. A border
+    # carbon adjustment is exactly that combination, so it has to compose.
+    carbon_applied::Matrix{Float64}
     carbon_specific::Bool
     label::String
 end
 
 function Scenario(b::KiteBaseline; label::AbstractString = "scenario")
     return Scenario(copy(b.τ), copy(b.ζ), ones(b.N, b.N, b.J), ones(b.N, b.J),
-                    ones(b.N), falses(b.N), zeros(b.N, b.J), false, String(label))
+                    ones(b.N), falses(b.N), zeros(b.N, b.J), ones(b.N, b.J), false,
+                    String(label))
 end
 
 """
@@ -253,7 +259,8 @@ price — cannot leave the caller's scenario mutated.
 """
 _copy_scenario(sc::Scenario) =
     Scenario(copy(sc.τ′), copy(sc.ζ′), copy(sc.κ̂), copy(sc.ẑ), copy(sc.L̂),
-             copy(sc.coalition), copy(sc.carbon), sc.carbon_specific, sc.label)
+             copy(sc.coalition), copy(sc.carbon), copy(sc.carbon_applied),
+             sc.carbon_specific, sc.label)
 
 function Base.show(io::IO, sc::Scenario)
     print(io, "Scenario(\"", sc.label, "\")")

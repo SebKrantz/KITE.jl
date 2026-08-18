@@ -38,7 +38,9 @@ function update_equilibrium(model::KiteModel, b::KiteBaseline, sc::Scenario,
     # its τ′ records the ad-valorem equivalent the price worked out to in equilibrium.
     if sc.carbon_specific
         sc = _copy_scenario(sc)
-        _apply_carbon_wedge!(sc, b, ones(b.N, b.J))   # evaluate at baseline prices to start
+        # Start from the wedge the price implies at baseline prices, so the workspace's
+        # `has_tariff` fast-path flag sees it and the first iteration is not a free pass.
+        _apply_carbon_wedge!(sc, ones(b.N, b.J); inclusive = false)
     end
 
     ws = _Workspace(b, sc, _model_state(model, b, sc))
@@ -56,7 +58,7 @@ function update_equilibrium(model::KiteModel, b::KiteBaseline, sc::Scenario,
         copyto!(ws.P̂_prev, ws.P̂)
 
         if sc.carbon_specific
-            _apply_carbon_wedge!(sc, b, ws.P̂)
+            _apply_carbon_wedge!(sc, ws.P̂)
             _refresh_wedges!(ws.φ̂, ws.W, b, sc)
         end
 

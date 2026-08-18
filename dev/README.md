@@ -197,7 +197,8 @@ r.scenario.τ′        # the ad-valorem equivalent the price worked out to in e
 ```
 
 Use the default `basis = :specific` for a genuine price per tonne: its ad-valorem equivalent is
-`1 + price·χ/P̂` and the solver revises it as the fuel price moves. The `:ad_valorem` shortcut
+`1 + price·χ/P̂ᵖʳᵉ` — the fuel price *net of the tax* — and the solver revises it as that price
+moves, which is what makes the revenue collected equal `price × emissions`. The `:ad_valorem` shortcut
 freezes it at baseline prices, and the difference is not cosmetic — on the test fixture it is 4%
 of the emission effect at a small price and 30% at a large one.
 
