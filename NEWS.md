@@ -40,6 +40,27 @@ paper.
   layout, fitted). Both make baseline territorial emissions reproduce the satellite's country
   totals.
 
+## Sectoral carbon footprint
+
+* **`emissions(r; level = :sector)` now returns two footprints, not one.** Alongside
+  `production` — emissions by the sector that burns the fuel — it carries `consumption`: the
+  emissions released worldwide to serve a country's final demand for that sector's goods,
+  indexed by the sector of the **final good** rather than the sector that emitted. Each column
+  sums over one country's rows (households included) to that country's figure at
+  `level = :country`, asserted in the tests.
+
+  The two attributions rank very differently and that is the point of having both: on EMERGING
+  2023 construction is the largest consumption figure in the world, at 6.0 Gt, while barely
+  registering as a burner; iron and steel is the mirror image at 4.3 Gt burnt.
+
+  There is no sectoral *extraction* footprint. Extraction is attributed to whoever took the fuel
+  out of the ground, which happens only in the `primary` sectors, so its sectoral cut is
+  `level = :fuel`.
+
+  `_consumption_footprint` is now a sum over the new `_consumption_footprint_sector`, so the
+  country and sector levels cannot drift apart. The level costs two multiplier solves, as
+  `:country` does — 1.6 s at 196 × 133.
+
 ## Carbon pricing
 
 * **`set_carbon_price!`** prices the carbon released when fuel is burnt, so ETS-style policy and

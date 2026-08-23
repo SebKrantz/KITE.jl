@@ -193,25 +193,28 @@ function _emission_multiplier(q::AbstractMatrix, π::AbstractArray{<:Real,3},
 end
 
 """
-    _consumption_footprint(r) -> (CF, CF′)
+    _consumption_footprint_sector(r, is′) -> (CF, CF′)
 
-Mahlkow & Wanner equation (17): the emissions released worldwide to serve each country's final
-demand, plus the fuel that country burns directly in final consumption.
+`(N, J)` — the emissions released worldwide to serve each country's final demand **for each
+sector's goods**: the inner term of equation (17), before it is summed over sectors.
 
-`CF[n] = Σ_{(o,j)} v[o,j] · π[o,n,j] α[n,j] I_n / (τ ζ) + direct final burning`.
+    CF[n,j] = Σ_o v[o,j] · π[o,n,j] · α[n,j] I_n / (τ ζ)
+
+**Indexed by the sector of the final good, not by the sector that emitted.** The steel in a car
+lands on vehicles, not on iron and steel. That is exactly what makes the column sum meaningful —
+add the direct final burning of [`_final_burning`](@ref) and it is the country's consumption
+footprint, to machine precision — and it is also the thing that has to be said out loud wherever
+the number is displayed, because the natural reading of "emissions by sector" is the other one.
 """
-function _consumption_footprint(r::KiteResult{MahlkowWanner2023}, is′)
+function _consumption_footprint_sector(r::KiteResult{MahlkowWanner2023}, is′)
     b, sc = r.baseline, r.scenario
     q, q′ = _direct_intensity(r, is′)
-    fin, fin′ = _final_burning(r)
 
     v = _emission_multiplier(q, b.π, b.τ, b.ζ, b.input_share)
     v′ = _emission_multiplier(q′, r.π′, sc.τ′, sc.ζ′, is′)
 
-    # Start from the fuel each country burns itself — that never entered any production chain,
-    # so no multiplier applies to it — then add the emissions embodied in everything it buys.
-    CF = copy(fin)
-    CF′ = copy(fin′)
+    CF = zeros(b.N, b.J)
+    CF′ = zeros(b.N, b.J)
     @inbounds for j in 1:b.J, n in 1:b.N
         base = b.α[n, j] * b.I[n]        # n's final demand for sector j, in purchaser prices
         new = b.α[n, j] * r.I′[n]
@@ -223,10 +226,26 @@ function _consumption_footprint(r::KiteResult{MahlkowWanner2023}, is′)
             s1 += v[o, j] * b.π[o, n, j] / (b.τ[o, n, j] * b.ζ[o, n, j])
             s2 += v′[o, j] * r.π′[o, n, j] / (sc.τ′[o, n, j] * sc.ζ′[o, n, j])
         end
-        CF[n] += s1 * base
-        CF′[n] += s2 * new
+        CF[n, j] = s1 * base
+        CF′[n, j] = s2 * new
     end
     return CF, CF′
+end
+
+"""
+    _consumption_footprint(r, is′) -> (CF, CF′)
+
+Mahlkow & Wanner equation (17): the emissions released worldwide to serve each country's final
+demand, plus the fuel that country burns directly in final consumption.
+
+The sectoral term is summed here rather than duplicated, so the country and sector levels cannot
+drift apart. Fuel a household burns itself never entered any production chain, so no multiplier
+applies to it and it is simply added.
+"""
+function _consumption_footprint(r::KiteResult{MahlkowWanner2023}, is′)
+    fin, fin′ = _final_burning(r)
+    CF, CF′ = _consumption_footprint_sector(r, is′)
+    return vec(sum(CF, dims = 2)) .+ fin, vec(sum(CF′, dims = 2)) .+ fin′
 end
 
 """
@@ -328,9 +347,23 @@ Requires the model to carry an `emission_intensity`; see [`MahlkowWanner2023`](@
 - `:country` — the three footprints of equations (16)–(18), baseline and counterfactual, with
   the ratio. Each of the three sums to the same world total, before and after.
 - `:fuel` — production emissions split by burnt fuel, `(country, sector)`.
-- `:sector` — emissions by the sector that *burns* the fuel, `q ⊙ Y`, plus a `households` row
-  per country for fuel burnt in final consumption. This is the layout of a standard MRIO
-  satellite account, so it is what you compare against the data.
+- `:sector` — **two** of the three footprints, per `(country, sector)`, plus a `households` row
+  per country for fuel burnt in final consumption:
+
+  * `production` — emissions by the sector that *burns* the fuel, `q ⊙ Y`. The layout of a
+    standard MRIO satellite account, so it is what you compare against the data.
+  * `consumption` — emissions released worldwide to serve that country's final demand for that
+    sector's goods, indexed by the sector of the **final good** rather than by the sector that
+    emitted: the steel in a car lands on vehicles, not on iron and steel. The two rankings
+    genuinely differ — on EMERGING 2023 construction is the largest consumption figure in the
+    world while barely registering as a burner.
+
+  Each column sums, over the sectors of one country, to that country's footprint at
+  `level = :country`. There is **no sectoral extraction footprint**: extraction is attributed to
+  whoever took the fuel out of the ground, which happens only in the `primary` sectors, so the
+  sectoral cut of it is `level = :fuel`.
+
+  Note this level costs two [`_emission_multiplier`](@ref) solves, as `:country` does.
 
 Units are those of the supplied intensity: if `χ` is tonnes of CO₂ per baseline dollar, these
 are tonnes.
@@ -372,20 +405,31 @@ function emissions(r::KiteResult{MahlkowWanner2023}; level::Symbol = :country)
                          production = val, production_new = val′,
                          production_change = _safe_ratio.(val′, val))
     else
-        q, q′ = _direct_intensity(r, _counterfactual_input_share(r))
+        is′ = _counterfactual_input_share(r)
+        q, q′ = _direct_intensity(r, is′)
         fin, fin′ = _final_burning(r)
-        country = String[]; sector = String[]; val = Float64[]; val′ = Float64[]
+        CF, CF′ = _consumption_footprint_sector(r, is′)
+        country = String[]; sector = String[]
+        val = Float64[]; val′ = Float64[]
+        cf = Float64[]; cf′ = Float64[]
         for k in 1:b.J, d in 1:b.N
             push!(country, b.countries[d]); push!(sector, b.sectors[k])
             push!(val, q[d, k] * b.Y[d, k]); push!(val′, q′[d, k] * r.Y′[d, k])
+            push!(cf, CF[d, k]); push!(cf′, CF′[d, k])
         end
         for d in 1:b.N
             push!(country, b.countries[d]); push!(sector, "households")
             push!(val, fin[d]); push!(val′, fin′[d])
+            # fuel a household burns itself is emitted and consumed by the same household, so
+            # the two columns coincide on this row — and including it is what makes each column
+            # sum to its country-level footprint rather than to almost it
+            push!(cf, fin[d]); push!(cf′, fin′[d])
         end
         return DataFrame(country = country, sector = sector,
                          production = val, production_new = val′,
-                         production_change = _safe_ratio.(val′, val))
+                         production_change = _safe_ratio.(val′, val),
+                         consumption = cf, consumption_new = cf′,
+                         consumption_change = _safe_ratio.(cf′, cf))
     end
 end
 
