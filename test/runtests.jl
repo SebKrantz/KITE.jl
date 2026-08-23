@@ -775,6 +775,33 @@ const FIXTURE = joinpath(@__DIR__, "fixtures", "toy_3x2")
             end
         end
 
+        @testset "the sector level carries both footprints, and they add up" begin
+            r = update_equilibrium(mc, bc, scc; TIGHT...)
+            ec = emissions(r; level = :country)
+            es = emissions(r; level = :sector)
+            @test nrow(es) == bc.N * (bc.J + 1)          # every sector, plus households
+            @test count(==("households"), es.sector) == bc.N
+
+            # each column sums, over one country's rows, to that country's footprint —
+            # including the households row, which is what makes it exact rather than nearly so
+            for (i, c) in enumerate(bc.countries)
+                sub = es[es.country .== c, :]
+                @test sum(sub.production) ≈ ec.production[i] rtol = 1e-12
+                @test sum(sub.production_new) ≈ ec.production_new[i] rtol = 1e-12
+                @test sum(sub.consumption) ≈ ec.consumption[i] rtol = 1e-12
+                @test sum(sub.consumption_new) ≈ ec.consumption_new[i] rtol = 1e-12
+            end
+
+            # the households row is emitted and consumed by the same household
+            hh = es[es.sector .== "households", :]
+            @test hh.production == hh.consumption
+            @test hh.production_new == hh.consumption_new
+
+            # the two are genuinely different attributions, not one column twice
+            ind = es[es.sector .!= "households", :]
+            @test ind.production != ind.consumption
+        end
+
         @testset "carbon accounts require an intensity" begin
             plain = MahlkowWanner2023(bc; primary = ["s1"], secondary = Any["s1"])
             @test !plain.has_carbon
